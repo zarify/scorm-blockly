@@ -1,0 +1,89 @@
+{
+  "metadata": {
+    "activity_id": "example_hello_world",
+    "title": "Hello World",
+    "version": "1.0",
+    "description": "Your first Blockly activity — print Hello, World!"
+  },
+  "instructions": {
+    "main": "Use the blocks to print 'Hello, World!' to the output.",
+    "steps": [
+      "Find the 'print' block in the Text category",
+      "Drag it onto the workspace",
+      "Type 'Hello, World!' into the text field",
+      "Click 'Run Code' to test your solution"
+    ]
+  },
+  "ui_settings": {
+    "theme": "default",
+    "show_code_toggle": true,
+    "show_hint_panel": true,
+    "max_attempts": null
+  },
+  "blockly_setup": {
+    "toolbox": {
+      "categories": [
+        {
+          "name": "Text",
+          "colour": "#5CA68D",
+          "blocks": ["text", "text_print"]
+        }
+      ]
+    },
+    "starting_blocks": null,
+    "max_blocks": null,
+    "disabled_blocks": []
+  },
+  "hints": [
+    {
+      "id": "hint_need_print",
+      "trigger": {
+        "event": "workspace_change",
+        "conditions": {
+          "type": "block_missing",
+          "block_type": "text_print"
+        }
+      },
+      "message": "Start by dragging a 'print' block from the Text category onto the workspace.",
+      "priority": 1,
+      "delay_seconds": 15,
+      "show_once": false
+    },
+    {
+      "id": "hint_need_text",
+      "trigger": {
+        "event": "workspace_change",
+        "conditions": {
+          "type": "all",
+          "conditions": [
+            { "type": "block_exists", "block_type": "text_print" },
+            {
+              "type": "none",
+              "conditions": [
+                { "type": "block_nested", "outer_type": "text_print", "inner_type": "text", "input_name": "TEXT" }
+              ]
+            }
+          ]
+        }
+      },
+      "message": "You have a print block — now connect a text block to tell it what to print!",
+      "priority": 2,
+      "delay_seconds": 10,
+      "show_once": false
+    }
+  ],
+  "evaluation": {
+    "grading_mode": "pass_fail",
+    "max_score": 100,
+    "test_cases": [
+      {
+        "id": "test_output",
+        "type": "stdout_match",
+        "expected_output": "Hello, World!\n",
+        "match_mode": "exact",
+        "weight": 100,
+        "feedback_on_fail": "Make sure you're printing exactly: Hello, World!"
+      }
+    ]
+  }
+}

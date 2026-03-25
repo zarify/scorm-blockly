@@ -1,0 +1,124 @@
+{
+  "metadata": {
+    "activity_id": "variable_swap",
+    "title": "Swap Two Variables",
+    "version": "1.0",
+    "description": "Swap the values of two variables using a temporary variable."
+  },
+  "instructions": {
+    "main": "You are given two variables: 'a' (set to 5) and 'b' (set to 10). Swap their values so that 'a' becomes 10 and 'b' becomes 5. You'll need a third variable to help!",
+    "steps": [
+      "Look at the starter blocks — 'a' is 5 and 'b' is 10",
+      "Create a temporary variable to hold one of the values",
+      "Use 'set' blocks to rearrange the values",
+      "After your code runs, 'a' should be 10 and 'b' should be 5",
+      "Click 'Run Code' to check your solution"
+    ]
+  },
+  "ui_settings": {
+    "theme": "default",
+    "show_code_toggle": true,
+    "show_hint_panel": true,
+    "max_attempts": null
+  },
+  "blockly_setup": {
+    "toolbox": {
+      "categories": [
+        {
+          "name": "Variables",
+          "colour": "#A65C81",
+          "blocks": ["variables_get", "variables_set"]
+        },
+        {
+          "name": "Math",
+          "colour": "#5C68A6",
+          "blocks": ["math_number", "math_arithmetic"]
+        },
+        {
+          "name": "Text",
+          "colour": "#5CA68D",
+          "blocks": ["text", "text_print"]
+        }
+      ]
+    },
+    "starting_blocks": null,
+    "max_blocks": null,
+    "disabled_blocks": []
+  },
+  "hints": [
+    {
+      "id": "hint_need_temp",
+      "trigger": {
+        "event": "workspace_change",
+        "conditions": {
+          "type": "block_count",
+          "block_type": "variables_set",
+          "min": 0,
+          "max": 2
+        }
+      },
+      "message": "To swap two values without losing one, you need a third variable. Try creating a variable called 'temp'.",
+      "priority": 1,
+      "delay_seconds": 45,
+      "show_once": false
+    },
+    {
+      "id": "hint_swap_order",
+      "trigger": {
+        "event": "test_fail",
+        "after_attempts": 2
+      },
+      "message": "The order matters! First, save 'a' into 'temp'. Then set 'a' to the value of 'b'. Finally, set 'b' to the value of 'temp'.",
+      "priority": 2,
+      "delay_seconds": 0,
+      "show_once": true
+    },
+    {
+      "id": "hint_step_by_step",
+      "trigger": {
+        "event": "test_fail",
+        "after_attempts": 4
+      },
+      "message": "Step by step: temp = a (temp is 5), a = b (a is now 10), b = temp (b is now 5). You need exactly 3 'set' blocks in this order.",
+      "priority": 3,
+      "delay_seconds": 0,
+      "show_once": true
+    }
+  ],
+  "evaluation": {
+    "grading_mode": "weighted",
+    "max_score": 100,
+    "test_cases": [
+      {
+        "id": "test_a_value",
+        "type": "variable_state",
+        "variable_name": "a",
+        "expected_value": 10,
+        "comparison": "equals",
+        "weight": 35,
+        "feedback_on_fail": "Variable 'a' should be 10 after the swap."
+      },
+      {
+        "id": "test_b_value",
+        "type": "variable_state",
+        "variable_name": "b",
+        "expected_value": 5,
+        "comparison": "equals",
+        "weight": 35,
+        "feedback_on_fail": "Variable 'b' should be 5 after the swap."
+      },
+      {
+        "id": "test_uses_temp",
+        "type": "block_structure",
+        "conditions": {
+          "type": "block_count",
+          "block_type": "variables_set",
+          "min": 5,
+          "max": 20
+        },
+        "weight": 30,
+        "feedback_on_fail": "You need at least 5 'set variable' blocks: 2 for the initial values + 3 for the swap."
+      }
+    ]
+  }
+}

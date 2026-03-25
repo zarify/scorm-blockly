@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<manifest identifier="blockly_scorm_activity"
+         version="1.0"
+         xmlns="http://www.imsproject.org/xsd/imscp_rootv1p1p2"
+         xmlns:adlcp="http://www.adlnet.org/xsd/adlcp_rootv1p2"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://www.imsproject.org/xsd/imscp_rootv1p1p2 imscp_rootv1p1p2.xsd
+                             http://www.imsglobal.org/xsd/imsmd_rootv1p2p1 imsmd_rootv1p2p1.xsd
+                             http://www.adlnet.org/xsd/adlcp_rootv1p2 adlcp_rootv1p2.xsd">
+  <metadata>
+    <schema>ADL SCORM</schema>
+    <schemaversion>1.2</schemaversion>
+  </metadata>
+  <organizations default="blockly_org">
+    <organization identifier="blockly_org">
+      <title>Blockly Coding Activity</title>
+      <item identifier="blockly_item" identifierref="blockly_resource" isvisible="true">
+        <title>Blockly Coding Activity</title>
+        <adlcp:masteryscore>50</adlcp:masteryscore>
+      </item>
+    </organization>
+  </organizations>
+  <resources>
+    <resource identifier="blockly_resource" type="webcontent" adlcp:scormtype="sco" href="index.html">
+      <file href="index.html"/>
+      <file href="css/style.css"/>
+      <file href="js/app.bundle.js"/>
+      <file href="config/activity_config.json"/>
+    </resource>
+  </resources>
+</manifest>

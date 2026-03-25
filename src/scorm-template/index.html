@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blockly Activity</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <div id="app">
+    <header id="status-bar" class="status-bar status-info">Loading activity...</header>
+
+    <div id="main-layout">
+      <!-- Left panel: instructions + hints -->
+      <aside id="left-panel">
+        <div id="instructions-panel" class="panel">
+          <h2>Instructions</h2>
+          <p>Loading...</p>
+        </div>
+        <div id="hint-panel" class="panel hint-panel">
+          <h3>💡 Hints</h3>
+          <p class="hint-empty">No hints available right now.</p>
+        </div>
+      </aside>
+
+      <!-- Center: Blockly workspace -->
+      <main id="workspace-area">
+        <div id="blockly-workspace"></div>
+        <div id="controls">
+          <button id="btn-run" class="btn btn-primary">▶ Run Code</button>
+          <button id="btn-reset" class="btn btn-secondary">↺ Reset</button>
+          <button id="btn-code-toggle" class="btn btn-secondary">{ } Show Code</button>
+        </div>
+      </main>
+
+      <!-- Right panel: output + code -->
+      <aside id="right-panel">
+        <div id="output-panel" class="panel">
+          <p class="output-placeholder">Run your code to see results here.</p>
+        </div>
+        <div id="code-panel" class="panel" style="display: none;">
+          <h3>Generated Code</h3>
+          <pre><code></code></pre>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script src="js/app.bundle.js"></script>
+</body>
+</html>

@@ -1,0 +1,145 @@
+{
+  "metadata": {
+    "activity_id": "loop_basics",
+    "title": "Basic For-Loops",
+    "version": "1.0",
+    "description": "Use a loop to print the numbers 1 through 3."
+  },
+  "instructions": {
+    "main": "Create a program that prints the numbers 1 to 3, each on a new line.",
+    "steps": [
+      "Drag a 'count with' loop block onto the workspace",
+      "Set the loop to count from 1 to 3",
+      "Inside the loop, add a 'print' block",
+      "Print the loop variable (i) each time through the loop"
+    ]
+  },
+  "ui_settings": {
+    "theme": "default",
+    "show_code_toggle": true,
+    "show_hint_panel": true,
+    "max_attempts": null
+  },
+  "blockly_setup": {
+    "toolbox": {
+      "categories": [
+        {
+          "name": "Loops",
+          "colour": "#5CA65C",
+          "blocks": ["controls_for", "controls_repeat_ext", "controls_whileUntil"]
+        },
+        {
+          "name": "Math",
+          "colour": "#5C68A6",
+          "blocks": ["math_number", "math_arithmetic"]
+        },
+        {
+          "name": "Text",
+          "colour": "#5CA68D",
+          "blocks": ["text", "text_print"]
+        },
+        {
+          "name": "Variables",
+          "colour": "#A65C81",
+          "blocks": ["variables_get", "variables_set"]
+        }
+      ]
+    },
+    "starting_blocks": null,
+    "max_blocks": null,
+    "disabled_blocks": []
+  },
+  "hints": [
+    {
+      "id": "hint_need_loop",
+      "trigger": {
+        "event": "workspace_change",
+        "conditions": {
+          "type": "all",
+          "conditions": [
+            { "type": "block_missing", "block_type": "controls_for" },
+            { "type": "block_missing", "block_type": "controls_repeat_ext" }
+          ]
+        }
+      },
+      "message": "Think about repeating an action. Look in the Loops category for a block that can count!",
+      "priority": 1,
+      "delay_seconds": 30,
+      "show_once": false
+    },
+    {
+      "id": "hint_print_in_loop",
+      "trigger": {
+        "event": "workspace_change",
+        "conditions": {
+          "type": "all",
+          "conditions": [
+            {
+              "type": "any",
+              "conditions": [
+                { "type": "block_exists", "block_type": "controls_for" },
+                { "type": "block_exists", "block_type": "controls_repeat_ext" }
+              ]
+            },
+            { "type": "block_missing", "block_type": "text_print" }
+          ]
+        }
+      },
+      "message": "You have a loop — now add a 'print' block inside it to show output each time.",
+      "priority": 2,
+      "delay_seconds": 15,
+      "show_once": false
+    },
+    {
+      "id": "hint_after_failures",
+      "trigger": {
+        "event": "test_fail",
+        "after_attempts": 3
+      },
+      "message": "Check your loop boundaries. The 'count with' block should go from 1 to 3, stepping by 1. Make sure you're printing the loop variable, not a fixed number.",
+      "priority": 3,
+      "delay_seconds": 0,
+      "show_once": true
+    }
+  ],
+  "evaluation": {
+    "grading_mode": "weighted",
+    "max_score": 100,
+    "test_cases": [
+      {
+        "id": "test_output",
+        "type": "stdout_match",
+        "expected_output": "1\n2\n3\n",
+        "match_mode": "exact",
+        "weight": 60,
+        "feedback_on_fail": "Expected output: 1, 2, 3 — each on its own line."
+      },
+      {
+        "id": "test_uses_loop",
+        "type": "block_structure",
+        "conditions": {
+          "type": "any",
+          "conditions": [
+            { "type": "block_exists", "block_type": "controls_for", "min_count": 1 },
+            { "type": "block_exists", "block_type": "controls_repeat_ext", "min_count": 1 }
+          ]
+        },
+        "weight": 20,
+        "feedback_on_fail": "Try using a loop block instead of repeating print blocks manually."
+      },
+      {
+        "id": "test_print_in_loop",
+        "type": "block_structure",
+        "conditions": {
+          "type": "any",
+          "conditions": [
+            { "type": "block_nested", "outer_type": "controls_for", "inner_type": "text_print", "input_name": "DO" },
+            { "type": "block_nested", "outer_type": "controls_repeat_ext", "inner_type": "text_print", "input_name": "DO" }
+          ]
+        },
+        "weight": 20,
+        "feedback_on_fail": "Make sure the print block is inside the loop, not outside it."
+      }
+    ]
+  }
+}

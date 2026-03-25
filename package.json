@@ -1,0 +1,28 @@
+{
+  "name": "moodle-blockly-scorm",
+  "version": "1.0.0",
+  "description": "Configurable Blockly-SCORM activity engine for Moodle with browser-based activity builder",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.js",
+    "build:scorm": "node scripts/build.js --target=scorm",
+    "build:builder": "node scripts/build.js --target=builder",
+    "export": "node scripts/export-scorm.js",
+    "dev": "node scripts/dev.js"
+  },
+  "keywords": [
+    "blockly",
+    "scorm",
+    "moodle",
+    "education"
+  ],
+  "license": "MIT",
+  "dependencies": {
+    "blockly": "^12.5.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.27.4",
+    "jszip": "^3.10.1"
+  }
+}

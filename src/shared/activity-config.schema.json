@@ -1,0 +1,356 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://moodle-blockly-scorm/activity-config.schema.json",
+  "title": "Activity Configuration",
+  "description": "Configuration for a Blockly-SCORM activity in Moodle",
+  "type": "object",
+  "required": ["metadata", "blockly_setup", "evaluation"],
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["activity_id", "title"],
+      "properties": {
+        "activity_id": {
+          "type": "string",
+          "pattern": "^[a-z0-9_]+$",
+          "description": "Unique identifier for the activity (lowercase, underscores, no spaces)"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Display title shown to students"
+        },
+        "version": {
+          "type": "string",
+          "default": "1.0",
+          "description": "Config version for migration support"
+        },
+        "description": {
+          "type": "string",
+          "description": "Brief description of the activity"
+        }
+      }
+    },
+    "instructions": {
+      "type": "object",
+      "properties": {
+        "main": {
+          "type": "string",
+          "description": "Primary instruction text shown to students"
+        },
+        "steps": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Ordered step-by-step guidance"
+        }
+      }
+    },
+    "ui_settings": {
+      "type": "object",
+      "properties": {
+        "theme": {
+          "type": "string",
+          "enum": ["default", "dark", "high_contrast"],
+          "default": "default"
+        },
+        "show_code_toggle": {
+          "type": "boolean",
+          "default": true,
+          "description": "Allow students to see generated JavaScript"
+        },
+        "show_hint_panel": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show the hint panel in the UI"
+        },
+        "max_attempts": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "default": null,
+          "description": "Maximum submission attempts (null = unlimited)"
+        }
+      }
+    },
+    "blockly_setup": {
+      "type": "object",
+      "required": ["toolbox"],
+      "properties": {
+        "toolbox": {
+          "type": "object",
+          "required": ["categories"],
+          "properties": {
+            "categories": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["name", "blocks"],
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "description": "Category display name"
+                  },
+                  "colour": {
+                    "type": "string",
+                    "description": "Category colour (hex or hue number)"
+                  },
+                  "blocks": {
+                    "type": "array",
+                    "items": { "type": "string" },
+                    "description": "List of Blockly block type identifiers"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "starting_blocks": {
+          "description": "Blockly workspace state in JSON serialization format (null = empty workspace)",
+          "oneOf": [
+            { "type": "object" },
+            { "type": "null" }
+          ],
+          "default": null
+        },
+        "max_blocks": {
+          "type": ["integer", "null"],
+          "minimum": 1,
+          "default": null,
+          "description": "Maximum number of blocks allowed (null = unlimited)"
+        },
+        "disabled_blocks": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "description": "Block types that appear greyed out and cannot be used"
+        }
+      }
+    },
+    "hints": {
+      "type": "array",
+      "default": [],
+      "items": {
+        "$ref": "#/definitions/hint"
+      }
+    },
+    "evaluation": {
+      "type": "object",
+      "required": ["test_cases"],
+      "properties": {
+        "grading_mode": {
+          "type": "string",
+          "enum": ["pass_fail", "weighted"],
+          "default": "weighted",
+          "description": "pass_fail: 100 or 0; weighted: sum of passing test weights"
+        },
+        "max_score": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 100
+        },
+        "test_cases": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/definitions/test_case"
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "condition": {
+      "type": "object",
+      "required": ["type"],
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "const": "block_exists" },
+            "block_type": { "type": "string" },
+            "min_count": { "type": "integer", "minimum": 1, "default": 1 }
+          },
+          "required": ["type", "block_type"]
+        },
+        {
+          "properties": {
+            "type": { "const": "block_missing" },
+            "block_type": { "type": "string" }
+          },
+          "required": ["type", "block_type"]
+        },
+        {
+          "properties": {
+            "type": { "const": "block_connected" },
+            "upper_type": { "type": "string" },
+            "lower_type": { "type": "string" }
+          },
+          "required": ["type", "upper_type", "lower_type"]
+        },
+        {
+          "properties": {
+            "type": { "const": "block_nested" },
+            "outer_type": { "type": "string" },
+            "inner_type": { "type": "string" },
+            "input_name": { "type": "string" }
+          },
+          "required": ["type", "outer_type", "inner_type", "input_name"]
+        },
+        {
+          "properties": {
+            "type": { "const": "block_field_value" },
+            "block_type": { "type": "string" },
+            "field_name": { "type": "string" },
+            "expected_value": {}
+          },
+          "required": ["type", "block_type", "field_name", "expected_value"]
+        },
+        {
+          "properties": {
+            "type": { "const": "block_count" },
+            "block_type": { "type": "string" },
+            "min": { "type": "integer", "minimum": 0 },
+            "max": { "type": "integer", "minimum": 0 }
+          },
+          "required": ["type", "block_type"]
+        },
+        {
+          "properties": {
+            "type": { "const": "workspace_empty" }
+          },
+          "required": ["type"]
+        },
+        {
+          "properties": {
+            "type": { "const": "all" },
+            "conditions": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/condition" },
+              "minItems": 1
+            }
+          },
+          "required": ["type", "conditions"]
+        },
+        {
+          "properties": {
+            "type": { "const": "any" },
+            "conditions": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/condition" },
+              "minItems": 1
+            }
+          },
+          "required": ["type", "conditions"]
+        },
+        {
+          "properties": {
+            "type": { "const": "none" },
+            "conditions": {
+              "type": "array",
+              "items": { "$ref": "#/definitions/condition" },
+              "minItems": 1
+            }
+          },
+          "required": ["type", "conditions"]
+        }
+      ]
+    },
+    "hint": {
+      "type": "object",
+      "required": ["id", "trigger", "message"],
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Unique hint identifier"
+        },
+        "trigger": {
+          "type": "object",
+          "required": ["event"],
+          "properties": {
+            "event": {
+              "type": "string",
+              "enum": ["workspace_change", "test_fail", "manual", "timed"]
+            },
+            "conditions": {
+              "$ref": "#/definitions/condition",
+              "description": "Workspace conditions (required for workspace_change event)"
+            },
+            "after_attempts": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0,
+              "description": "Only trigger after this many failed test runs"
+            }
+          }
+        },
+        "message": {
+          "type": "string",
+          "description": "Hint text shown to the student"
+        },
+        "priority": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Higher priority hints suppress lower ones"
+        },
+        "delay_seconds": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0,
+          "description": "Delay before showing after trigger condition is met"
+        },
+        "show_once": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, don't re-show after student dismisses"
+        }
+      }
+    },
+    "test_case": {
+      "type": "object",
+      "required": ["id", "type", "weight"],
+      "properties": {
+        "id": { "type": "string" },
+        "weight": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "feedback_on_fail": { "type": "string" }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "type": { "const": "stdout_match" },
+            "expected_output": { "type": "string" },
+            "match_mode": {
+              "type": "string",
+              "enum": ["exact", "contains", "regex"],
+              "default": "exact"
+            }
+          },
+          "required": ["type", "expected_output"]
+        },
+        {
+          "properties": {
+            "type": { "const": "block_structure" },
+            "conditions": { "$ref": "#/definitions/condition" }
+          },
+          "required": ["type", "conditions"]
+        },
+        {
+          "properties": {
+            "type": { "const": "variable_state" },
+            "variable_name": { "type": "string" },
+            "expected_value": {},
+            "comparison": {
+              "type": "string",
+              "enum": ["equals", "gt", "lt", "gte", "lte", "contains", "type"],
+              "default": "equals"
+            }
+          },
+          "required": ["type", "variable_name", "expected_value"]
+        }
+      ]
+    }
+  }
+}
