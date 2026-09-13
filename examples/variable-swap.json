@@ -95,7 +95,7 @@
         "variable_name": "a",
         "expected_value": 10,
         "comparison": "equals",
-        "weight": 35,
+        "points": 4,
         "feedback_on_fail": "Variable 'a' should be 10 after the swap."
       },
       {
@@ -104,7 +104,7 @@
         "variable_name": "b",
         "expected_value": 5,
         "comparison": "equals",
-        "weight": 35,
+        "points": 4,
         "feedback_on_fail": "Variable 'b' should be 5 after the swap."
       },
       {
@@ -116,7 +116,7 @@
           "min": 5,
           "max": 20
         },
-        "weight": 30,
+        "points": 3,
         "feedback_on_fail": "You need at least 5 'set variable' blocks: 2 for the initial values + 3 for the swap."
       }
     ]

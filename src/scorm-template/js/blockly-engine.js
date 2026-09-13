@@ -6,6 +6,7 @@
 
 import * as Blockly from 'blockly';
 import { javascriptGenerator } from 'blockly/javascript';
+import { buildCategoryToolboxContents } from '../../shared/blockly-toolbox.js';
 
 let workspace = null;
 
@@ -64,15 +65,11 @@ export function initWorkspace(container, blocklySetup, uiSettings) {
  * @returns {object} Blockly toolbox definition
  */
 function buildToolboxDefinition(toolboxConfig) {
-  const contents = toolboxConfig.categories.map((cat) => ({
-    kind: 'category',
-    name: cat.name,
-    colour: cat.colour || undefined,
-    contents: cat.blocks.map((blockType) => ({
-      kind: 'block',
-      type: blockType,
-    })),
-  }));
+  const contents = buildCategoryToolboxContents(
+    Blockly,
+    toolboxConfig.categories,
+    'student toolbox',
+  );
 
   return { kind: 'categoryToolbox', contents };
 }

@@ -2,9 +2,21 @@
  * Tests Tab — Test case builder with type-specific editors.
  */
 
-import { getConfig, notifyChange, onConfigChange } from './builder-app.js';
+import { getConfig, notifyChange, onConfigChange, Blockly } from './builder-app.js';
+import {
+  DEFAULT_TOOLBOX_BLOCK_LIBRARY,
+  getWorkspaceBlockMetadata,
+} from '../../shared/blockly-toolbox.js';
+import {
+  formatPromptInputs,
+  getPromptInputs,
+  getTestPoints,
+  parsePromptInputs,
+  setTestPoints,
+} from '../../shared/test-config.js';
 
 let selectedTestIndex = -1;
+let suppressSelectedTestEditorSync = false;
 
 const TEST_TYPES = [
   { value: 'stdout_match', label: 'Output match (stdout)' },
@@ -33,7 +45,7 @@ export function initTestsTab() {
   onConfigChange(() => {
     renderTestList();
     updateWeightIndicator();
-    if (selectedTestIndex >= 0) renderTestEditor();
+    if (selectedTestIndex >= 0 && !suppressSelectedTestEditorSync) renderTestEditor();
   });
   renderTestList();
   updateWeightIndicator();
@@ -45,14 +57,15 @@ function addTest() {
   cfg.evaluation.test_cases.push({
     id,
     type: 'stdout_match',
+    prompt_inputs: [],
     expected_output: '',
     match_mode: 'exact',
-    weight: 0,
+    points: 1,
     feedback_on_fail: '',
   });
 
   selectedTestIndex = cfg.evaluation.test_cases.length - 1;
-  notifyChange();
+  emitLocalTestChange();
   renderTestList();
   renderTestEditor();
   updateWeightIndicator();
@@ -64,7 +77,7 @@ function removeTest(index) {
   if (selectedTestIndex >= cfg.evaluation.test_cases.length) {
     selectedTestIndex = cfg.evaluation.test_cases.length - 1;
   }
-  notifyChange();
+  emitLocalTestChange();
   renderTestList();
   renderTestEditor();
   updateWeightIndicator();
@@ -77,7 +90,7 @@ function renderTestList() {
   container.innerHTML = tests.map((tc, i) => `
     <div class="list-item ${i === selectedTestIndex ? 'selected' : ''}" data-index="${i}">
       <span class="list-item-title">
-        <strong>${tc.type}</strong> — ${tc.id} (${tc.weight}%)
+        <strong>${tc.type}</strong> — ${tc.id} (${formatPointsLabel(getTestPoints(tc))})
       </span>
       <button class="list-item-remove" data-index="${i}" title="Remove test">✕</button>
     </div>
@@ -124,9 +137,9 @@ function renderTestEditor() {
     </div>
     <div id="test-type-fields"></div>
     <div class="form-group">
-      <label>Weight (%)</label>
-      <input type="range" id="test-weight" min="0" max="100" value="${tc.weight}">
-      <span id="test-weight-display">${tc.weight}%</span>
+      <label>Points</label>
+      <input type="number" id="test-points" min="0" step="1" value="${getTestPoints(tc)}">
+      <small>Integer points awarded when this test passes.</small>
     </div>
     <div class="form-group">
       <label>Feedback on fail</label>
@@ -140,16 +153,23 @@ function renderTestEditor() {
   renderTestTypeFields(tc);
 
   // Bind common fields
-  bindField('test-id', (v) => { tc.id = v; renderTestList(); });
+  bindField('test-id', (v) => { tc.id = v; });
   bindField('test-type', (v) => {
     // Reset type-specific fields
-    const newTc = { id: tc.id, type: v, weight: tc.weight, feedback_on_fail: tc.feedback_on_fail };
+    const newTc = {
+      id: tc.id,
+      type: v,
+      points: getTestPoints(tc),
+      feedback_on_fail: tc.feedback_on_fail,
+    };
     if (v === 'stdout_match') {
+      newTc.prompt_inputs = getPromptInputs(tc);
       newTc.expected_output = '';
       newTc.match_mode = 'exact';
     } else if (v === 'block_structure') {
       newTc.conditions = { type: 'workspace_empty' };
     } else if (v === 'variable_state') {
+      newTc.prompt_inputs = getPromptInputs(tc);
       newTc.variable_name = '';
       newTc.expected_value = '';
       newTc.comparison = 'equals';
@@ -159,17 +179,15 @@ function renderTestEditor() {
     Object.keys(tc).forEach((k) => {
       if (!(k in newTc)) delete tc[k];
     });
-    notifyChange();
+    emitLocalTestChange();
     renderTestEditor();
     renderTestList();
   });
 
-  const weightSlider = document.getElementById('test-weight');
-  const weightDisplay = document.getElementById('test-weight-display');
-  weightSlider.addEventListener('input', (e) => {
-    tc.weight = parseInt(e.target.value);
-    weightDisplay.textContent = `${tc.weight}%`;
-    notifyChange();
+  const pointsInput = document.getElementById('test-points');
+  pointsInput.addEventListener('input', (e) => {
+    setTestPoints(tc, e.target.value);
+    emitLocalTestChange();
     updateWeightIndicator();
     renderTestList();
   });
@@ -185,8 +203,13 @@ function renderTestTypeFields(tc) {
     case 'stdout_match':
       html = `
         <div class="form-group">
+          <label>Prompt inputs</label>
+          <textarea id="test-prompt-inputs" rows="3" placeholder="One prompt() response per line">${escapeHtml(formatPromptInputs(getPromptInputs(tc)))}</textarea>
+          <small>Returned to <code>window.prompt()</code> in order. If the program asks for more or fewer inputs than listed here, the test fails explicitly.</small>
+        </div>
+        <div class="form-group">
           <label>Expected output</label>
-          <textarea id="test-expected-output" rows="4" placeholder="Expected console output (use \\n for newlines)">${escapeHtml(tc.expected_output || '')}</textarea>
+          <textarea id="test-expected-output" rows="4" placeholder="Expected console output">${escapeHtml(tc.expected_output || '')}</textarea>
           <small>Use actual newlines — each line of expected output on its own line. A trailing newline is added automatically by print blocks.</small>
         </div>
         <div class="form-group">
@@ -203,12 +226,18 @@ function renderTestTypeFields(tc) {
         <div class="form-group">
           <label>Condition</label>
           <div id="test-condition-builder"></div>
+          <small>Block suggestions come from the saved Workspace blocks and the configured toolbox.</small>
         </div>
       `;
       break;
 
     case 'variable_state':
       html = `
+        <div class="form-group">
+          <label>Prompt inputs</label>
+          <textarea id="test-prompt-inputs" rows="3" placeholder="One prompt() response per line">${escapeHtml(formatPromptInputs(getPromptInputs(tc)))}</textarea>
+          <small>Returned to <code>window.prompt()</code> in order before variable assertions run. Extra or missing inputs fail the test.</small>
+        </div>
         <div class="form-group">
           <label>Variable name</label>
           <input type="text" id="test-var-name" value="${escapeAttr(tc.variable_name || '')}" placeholder="e.g. count">
@@ -233,6 +262,7 @@ function renderTestTypeFields(tc) {
   // Bind type-specific fields
   switch (tc.type) {
     case 'stdout_match':
+      bindField('test-prompt-inputs', (v) => { tc.prompt_inputs = parsePromptInputs(v); });
       bindField('test-expected-output', (v) => { tc.expected_output = v; });
       bindField('test-match-mode', (v) => { tc.match_mode = v; });
       break;
@@ -241,14 +271,19 @@ function renderTestTypeFields(tc) {
       // Reuse condition builder from hints tab
       const builderDiv = document.getElementById('test-condition-builder');
       if (builderDiv) {
-        renderConditionBuilder(builderDiv, tc.conditions || { type: 'workspace_empty' }, (newCond) => {
+        const handleConditionChange = (newCond, options = {}) => {
           tc.conditions = newCond;
-          notifyChange();
-        });
+          emitLocalTestChange();
+          if (options.rerenderBuilder) {
+            renderConditionBuilder(builderDiv, tc.conditions, handleConditionChange);
+          }
+        };
+        renderConditionBuilder(builderDiv, tc.conditions || { type: 'workspace_empty' }, handleConditionChange);
       }
       break;
 
     case 'variable_state':
+      bindField('test-prompt-inputs', (v) => { tc.prompt_inputs = parsePromptInputs(v); });
       bindField('test-var-name', (v) => { tc.variable_name = v; });
       bindField('test-var-expected', (v) => {
         // Try to parse as number
@@ -290,8 +325,7 @@ function renderConditionBuilder(container, condition, onChange) {
     if (['all', 'any', 'none'].includes(newCond.type)) {
       newCond.conditions = [{ type: 'workspace_empty' }];
     }
-    onChange(newCond);
-    renderConditionBuilder(container, newCond, onChange);
+    onChange(newCond, { rerenderBuilder: true });
   });
 
   const fieldsDiv = container.querySelector('.condition-fields');
@@ -299,12 +333,19 @@ function renderConditionBuilder(container, condition, onChange) {
 }
 
 function renderSimpleConditionFields(container, condition, onChange) {
-  const bind = (selector, field, transform) => {
+  const blockTypeOptions = getSuggestedBlockTypes()
+    .map((blockType) => `<option value="${escapeAttr(blockType)}"></option>`)
+    .join('');
+  const outerBlockMetadata = getBlockDefinitionMetadata(condition.outer_type);
+  const conditionBlockMetadata = getBlockDefinitionMetadata(condition.block_type);
+
+  const bind = (selector, field, transform, options = {}) => {
     const el = container.querySelector(selector);
     if (el) {
-      el.addEventListener('input', (e) => {
+      const event = options.event || (el.tagName === 'SELECT' ? 'change' : 'input');
+      el.addEventListener(event, (e) => {
         condition[field] = transform ? transform(e.target.value) : e.target.value;
-        onChange(condition);
+        onChange(condition, { rerenderBuilder: Boolean(options.rerenderBuilder) });
       });
     }
   };
@@ -313,31 +354,48 @@ function renderSimpleConditionFields(container, condition, onChange) {
   switch (condition.type) {
     case 'block_exists':
     case 'block_missing':
-      html = `<input type="text" class="cond-bt" value="${escapeAttr(condition.block_type || '')}" placeholder="Block type" style="width:100%">`;
+      html = `
+        <datalist id="condition-block-types">${blockTypeOptions}</datalist>
+        <input type="text" class="cond-bt" list="condition-block-types" value="${escapeAttr(condition.block_type || '')}" placeholder="Block type" style="width:100%">
+      `;
       break;
     case 'block_connected':
       html = `
-        <input type="text" class="cond-ut" value="${escapeAttr(condition.upper_type || '')}" placeholder="Upper block type" style="width:100%;margin-bottom:4px">
-        <input type="text" class="cond-lt" value="${escapeAttr(condition.lower_type || '')}" placeholder="Lower block type" style="width:100%">`;
+        <datalist id="condition-block-types">${blockTypeOptions}</datalist>
+        <input type="text" class="cond-ut" list="condition-block-types" value="${escapeAttr(condition.upper_type || '')}" placeholder="Upper block type" style="width:100%;margin-bottom:4px">
+        <input type="text" class="cond-lt" list="condition-block-types" value="${escapeAttr(condition.lower_type || '')}" placeholder="Lower block type" style="width:100%">`;
       break;
     case 'block_nested':
       html = `
-        <input type="text" class="cond-ot" value="${escapeAttr(condition.outer_type || '')}" placeholder="Outer block type" style="width:100%;margin-bottom:4px">
-        <input type="text" class="cond-it" value="${escapeAttr(condition.inner_type || '')}" placeholder="Inner block type" style="width:100%;margin-bottom:4px">
-        <input type="text" class="cond-in" value="${escapeAttr(condition.input_name || '')}" placeholder="Input name (e.g. DO)" style="width:100%">`;
+        <datalist id="condition-block-types">${blockTypeOptions}</datalist>
+        <datalist id="condition-input-names">
+          ${outerBlockMetadata.inputNames.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}
+        </datalist>
+        <input type="text" class="cond-ot" list="condition-block-types" value="${escapeAttr(condition.outer_type || '')}" placeholder="Outer block type" style="width:100%;margin-bottom:4px">
+        <input type="text" class="cond-it" list="condition-block-types" value="${escapeAttr(condition.inner_type || '')}" placeholder="Inner block type" style="width:100%;margin-bottom:4px">
+        <input type="text" class="cond-in" list="condition-input-names" value="${escapeAttr(condition.input_name || '')}" placeholder="Input name (e.g. DO)" style="width:100%">
+        ${outerBlockMetadata.inputNames.length > 0 ? `<small>Inputs on ${escapeHtml(condition.outer_type || 'this block')}: ${outerBlockMetadata.inputNames.join(', ')}</small>` : ''}
+      `;
       break;
     case 'block_field_value':
       html = `
-        <input type="text" class="cond-bt" value="${escapeAttr(condition.block_type || '')}" placeholder="Block type" style="width:100%;margin-bottom:4px">
-        <input type="text" class="cond-fn" value="${escapeAttr(condition.field_name || '')}" placeholder="Field name" style="width:100%;margin-bottom:4px">
-        <input type="text" class="cond-ev" value="${escapeAttr(String(condition.expected_value || ''))}" placeholder="Expected value" style="width:100%">`;
+        <datalist id="condition-block-types">${blockTypeOptions}</datalist>
+        <datalist id="condition-field-names">
+          ${conditionBlockMetadata.fieldNames.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}
+        </datalist>
+        <input type="text" class="cond-bt" list="condition-block-types" value="${escapeAttr(condition.block_type || '')}" placeholder="Block type" style="width:100%;margin-bottom:4px">
+        <input type="text" class="cond-fn" list="condition-field-names" value="${escapeAttr(condition.field_name || '')}" placeholder="Field name" style="width:100%;margin-bottom:4px">
+        <input type="text" class="cond-ev" value="${escapeAttr(String(condition.expected_value ?? ''))}" placeholder="Expected value" style="width:100%">
+        ${conditionBlockMetadata.fieldNames.length > 0 ? `<small>Fields on ${escapeHtml(condition.block_type || 'this block')}: ${conditionBlockMetadata.fieldNames.join(', ')}</small>` : ''}
+      `;
       break;
     case 'block_count':
       html = `
-        <input type="text" class="cond-bt" value="${escapeAttr(condition.block_type || '')}" placeholder="Block type" style="width:100%;margin-bottom:4px">
+        <datalist id="condition-block-types">${blockTypeOptions}</datalist>
+        <input type="text" class="cond-bt" list="condition-block-types" value="${escapeAttr(condition.block_type || '')}" placeholder="Block type" style="width:100%;margin-bottom:4px">
         <div style="display:flex;gap:8px">
-          <input type="number" class="cond-mn" value="${condition.min || 0}" placeholder="Min" min="0" style="flex:1">
-          <input type="number" class="cond-mx" value="${condition.max || 10}" placeholder="Max" min="0" style="flex:1">
+          <input type="number" class="cond-mn" value="${condition.min ?? 0}" placeholder="Min" min="0" style="flex:1">
+          <input type="number" class="cond-mx" value="${condition.max ?? 10}" placeholder="Max" min="0" style="flex:1">
         </div>`;
       break;
     case 'workspace_empty':
@@ -349,10 +407,13 @@ function renderSimpleConditionFields(container, condition, onChange) {
 
   container.innerHTML = html;
 
-  bind('.cond-bt', 'block_type');
+  bind('.cond-bt', 'block_type', undefined, {
+    event: condition.type === 'block_field_value' ? 'change' : undefined,
+    rerenderBuilder: condition.type === 'block_field_value',
+  });
   bind('.cond-ut', 'upper_type');
   bind('.cond-lt', 'lower_type');
-  bind('.cond-ot', 'outer_type');
+  bind('.cond-ot', 'outer_type', undefined, { event: 'change', rerenderBuilder: true });
   bind('.cond-it', 'inner_type');
   bind('.cond-in', 'input_name');
   bind('.cond-fn', 'field_name');
@@ -366,20 +427,57 @@ function updateWeightIndicator() {
   if (!el) return;
 
   const tests = getConfig().evaluation.test_cases;
-  const total = tests.reduce((sum, tc) => sum + (tc.weight || 0), 0);
+  const total = tests.reduce((sum, tc) => sum + getTestPoints(tc), 0);
 
   if (tests.length === 0) {
     el.className = '';
     el.textContent = 'No test cases yet.';
-  } else if (total === 100) {
-    el.className = 'weight-ok';
-    el.textContent = `✓ Weights sum to ${total}%`;
   } else if (total > 0) {
-    el.className = 'weight-warn';
-    el.textContent = `⚠ Weights sum to ${total}% (should be 100%)`;
+    el.className = 'weight-ok';
+    el.textContent = `✓ Total available points: ${total}`;
   } else {
     el.className = 'weight-error';
-    el.textContent = `✗ All weights are 0 — no score possible`;
+    el.textContent = '✗ All tests are worth 0 points — no score possible';
+  }
+}
+
+function formatPointsLabel(points) {
+  return `${points} point${points === 1 ? '' : 's'}`;
+}
+
+function getSuggestedBlockTypes() {
+  const workspaceMetadata = getWorkspaceBlockMetadata(
+    Blockly,
+    getConfig().blockly_setup?.starting_blocks || null,
+  );
+  const toolboxBlockTypes = (getConfig().blockly_setup?.toolbox?.categories || [])
+    .flatMap((category) => category.blocks || []);
+  const defaultBlockTypes = Object.values(DEFAULT_TOOLBOX_BLOCK_LIBRARY).flat();
+
+  return [...new Set([...workspaceMetadata.blockTypes, ...toolboxBlockTypes, ...defaultBlockTypes])]
+    .filter((blockType) => Blockly.Blocks?.[blockType])
+    .sort();
+}
+
+function getBlockDefinitionMetadata(blockType) {
+  if (!blockType || !Blockly.Blocks?.[blockType]) {
+    return { inputNames: [], fieldNames: [] };
+  }
+
+  const workspace = new Blockly.Workspace();
+
+  try {
+    const block = workspace.newBlock(blockType);
+    return {
+      inputNames: [...new Set((block.inputList || []).map((input) => input.name).filter(Boolean))].sort(),
+      fieldNames: [...new Set((block.getFields?.() || []).map((field) => field.name).filter(Boolean))].sort(),
+    };
+  } catch {
+    return { inputNames: [], fieldNames: [] };
+  } finally {
+    if (typeof workspace.dispose === 'function') {
+      workspace.dispose();
+    }
   }
 }
 
@@ -389,8 +487,17 @@ function bindField(id, setter) {
   const event = el.tagName === 'SELECT' ? 'change' : 'input';
   el.addEventListener(event, (e) => {
     setter(e.target.value);
-    notifyChange();
+    emitLocalTestChange();
   });
+}
+
+function emitLocalTestChange() {
+  suppressSelectedTestEditorSync = true;
+  try {
+    notifyChange();
+  } finally {
+    suppressSelectedTestEditorSync = false;
+  }
 }
 
 function escapeHtml(str) {

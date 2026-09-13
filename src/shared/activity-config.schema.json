@@ -140,7 +140,7 @@
           "type": "string",
           "enum": ["pass_fail", "weighted"],
           "default": "weighted",
-          "description": "pass_fail: 100 or 0; weighted: sum of passing test weights"
+          "description": "pass_fail: 100 or 0; weighted: sum of passing test points"
         },
         "max_score": {
           "type": "integer",
@@ -307,13 +307,22 @@
     },
     "test_case": {
       "type": "object",
-      "required": ["id", "type", "weight"],
+      "required": ["id", "type"],
+      "anyOf": [
+        { "required": ["points"] },
+        { "required": ["weight"] }
+      ],
       "properties": {
         "id": { "type": "string" },
+        "points": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Integer points awarded when the test passes"
+        },
         "weight": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 100
+          "description": "Legacy alias for points"
         },
         "feedback_on_fail": { "type": "string" }
       },
@@ -321,6 +330,11 @@
         {
           "properties": {
             "type": { "const": "stdout_match" },
+            "prompt_inputs": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": []
+            },
             "expected_output": { "type": "string" },
             "match_mode": {
               "type": "string",
@@ -340,6 +354,11 @@
         {
           "properties": {
             "type": { "const": "variable_state" },
+            "prompt_inputs": {
+              "type": "array",
+              "items": { "type": "string" },
+              "default": []
+            },
             "variable_name": { "type": "string" },
             "expected_value": {},
             "comparison": {

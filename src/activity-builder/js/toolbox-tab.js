@@ -2,59 +2,34 @@
  * Toolbox Tab — Category and block selection with live preview.
  */
 
-import { getConfig, notifyChange, onConfigChange, Blockly } from './builder-app.js';
-
-// All standard Blockly block types organized by category
-const BLOCKLY_BLOCK_LIBRARY = {
-  Logic: [
-    'controls_if', 'controls_ifelse', 'logic_compare', 'logic_operation',
-    'logic_negate', 'logic_boolean', 'logic_null', 'logic_ternary',
-  ],
-  Loops: [
-    'controls_repeat_ext', 'controls_repeat', 'controls_whileUntil',
-    'controls_for', 'controls_forEach', 'controls_flow_statements',
-  ],
-  Math: [
-    'math_number', 'math_arithmetic', 'math_single', 'math_trig',
-    'math_constant', 'math_number_property', 'math_round',
-    'math_on_list', 'math_modulo', 'math_constrain',
-    'math_random_int', 'math_random_float', 'math_atan2',
-  ],
-  Text: [
-    'text', 'text_multiline', 'text_join', 'text_append',
-    'text_length', 'text_isEmpty', 'text_indexOf',
-    'text_charAt', 'text_getSubstring', 'text_changeCase',
-    'text_trim', 'text_count', 'text_replace',
-    'text_reverse', 'text_print', 'text_prompt_ext',
-  ],
-  Lists: [
-    'lists_create_with', 'lists_create_with_container',
-    'lists_repeat', 'lists_length', 'lists_isEmpty',
-    'lists_indexOf', 'lists_getIndex', 'lists_setIndex',
-    'lists_getSublist', 'lists_split', 'lists_sort',
-    'lists_reverse',
-  ],
-  Variables: ['variables_get', 'variables_set'],
-  Functions: [
-    'procedures_defnoreturn', 'procedures_defreturn',
-    'procedures_ifreturn', 'procedures_callnoreturn',
-    'procedures_callreturn',
-  ],
-};
+import { getConfig, notifyChange, onConfigChange, showToast, Blockly } from './builder-app.js';
+import {
+  buildCategoryToolboxContents,
+ createSeededToolboxCategories,
+ DEFAULT_TOOLBOX_BLOCK_LIBRARY,
+ getBlockTypesFromWorkspaceState,
+ getDefaultCategoryColour,
+} from '../../shared/blockly-toolbox.js';
 
 let selectedCategoryIndex = -1;
 let previewWorkspace = null;
+let suppressLocalConfigSync = false;
 
 export function initToolboxTab() {
   document.getElementById('btn-add-category').addEventListener('click', addCategory);
+  document.getElementById('btn-seed-toolbox').addEventListener('click', seedToolboxFromWorkspace);
   document.getElementById('block-search').addEventListener('input', (e) => renderBlockList(e.target.value));
 
   onConfigChange(() => {
+    if (suppressLocalConfigSync) return;
     renderCategoryList();
     if (selectedCategoryIndex >= 0) renderBlockList();
+    updateSeedButtonState();
+    updatePreview();
   });
 
   renderCategoryList();
+  updateSeedButtonState();
 
   // Initialize preview workspace when tab becomes visible
   window.addEventListener('tab-activated', (e) => {
@@ -69,12 +44,42 @@ function addCategory() {
   const name = `Category ${cfg.blockly_setup.toolbox.categories.length + 1}`;
   cfg.blockly_setup.toolbox.categories.push({
     name,
-    colour: '#5C81A6',
+    colour: getDefaultCategoryColour(cfg.blockly_setup.toolbox.categories.length),
     blocks: [],
   });
-  notifyChange();
+  emitLocalConfigChange();
   renderCategoryList();
   selectCategory(cfg.blockly_setup.toolbox.categories.length - 1);
+}
+
+function seedToolboxFromWorkspace() {
+  const startingBlocks = getConfig().blockly_setup?.starting_blocks;
+  if (!startingBlocks) {
+    showToast('Save starting blocks in Workspace before seeding the toolbox.', 'error');
+    return;
+  }
+
+  const blockTypes = getBlockTypesFromWorkspaceState(Blockly, startingBlocks)
+    .filter((blockType) => Blockly.Blocks?.[blockType]);
+  const seededCategories = createSeededToolboxCategories(blockTypes);
+
+  if (seededCategories.length === 0) {
+    showToast('No supported starter blocks were found to seed the toolbox.', 'error');
+    return;
+  }
+
+  const confirmed = window.confirm(
+    'Replace the current student toolbox with categories inferred from the saved Workspace blocks? You can customize the result afterward.',
+  );
+  if (!confirmed) return;
+
+  getConfig().blockly_setup.toolbox.categories = seededCategories;
+  selectedCategoryIndex = 0;
+  emitLocalConfigChange();
+  renderCategoryList();
+  renderBlockList();
+  updatePreview();
+  showToast(`Toolbox seeded from Workspace (${blockTypes.length} block type(s)).`, 'success');
 }
 
 function removeCategory(index) {
@@ -83,15 +88,19 @@ function removeCategory(index) {
   if (selectedCategoryIndex >= cfg.blockly_setup.toolbox.categories.length) {
     selectedCategoryIndex = cfg.blockly_setup.toolbox.categories.length - 1;
   }
-  notifyChange();
+  emitLocalConfigChange();
   renderCategoryList();
   renderBlockList();
   updatePreview();
 }
 
-function selectCategory(index) {
+function selectCategory(index, { rerenderCategories = true } = {}) {
   selectedCategoryIndex = index;
-  renderCategoryList();
+  if (rerenderCategories) {
+    renderCategoryList();
+  } else {
+    updateCategorySelectionUI();
+  }
   renderBlockList();
 }
 
@@ -121,22 +130,40 @@ function renderCategoryList() {
   });
 
   container.querySelectorAll('.category-name-input').forEach((el) => {
+    el.addEventListener('focus', (e) => {
+      selectCategory(parseInt(e.target.dataset.index), { rerenderCategories: false });
+    });
     el.addEventListener('input', (e) => {
       const idx = parseInt(e.target.dataset.index);
       getConfig().blockly_setup.toolbox.categories[idx].name = e.target.value;
-      notifyChange();
+      emitLocalConfigChange();
+      updateCurrentCategoryName();
       updatePreview();
     });
-    el.addEventListener('click', () => selectCategory(parseInt(el.dataset.index)));
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectCategory(parseInt(el.dataset.index), { rerenderCategories: false });
+    });
   });
 
   container.querySelectorAll('.category-color-input').forEach((el) => {
+    el.addEventListener('focus', (e) => {
+      selectCategory(parseInt(e.target.dataset.index), { rerenderCategories: false });
+    });
     el.addEventListener('input', (e) => {
       const idx = parseInt(e.target.dataset.index);
       getConfig().blockly_setup.toolbox.categories[idx].colour = e.target.value;
-      notifyChange();
-      renderCategoryList();
+      emitLocalConfigChange();
+      const categoryItem = e.target.closest('.category-item');
+      const colorSwatch = categoryItem?.querySelector('.category-color');
+      if (colorSwatch) {
+        colorSwatch.style.background = e.target.value;
+      }
       updatePreview();
+    });
+    el.addEventListener('click', (e) => {
+      e.stopPropagation();
+      selectCategory(parseInt(el.dataset.index), { rerenderCategories: false });
     });
   });
 
@@ -172,9 +199,11 @@ function renderBlockList(searchFilter = '') {
 
   // Flatten all blocks from the library
   const allBlocks = [];
-  for (const [libCat, blocks] of Object.entries(BLOCKLY_BLOCK_LIBRARY)) {
+  for (const [libCat, blocks] of Object.entries(DEFAULT_TOOLBOX_BLOCK_LIBRARY)) {
     for (const blockType of blocks) {
-      allBlocks.push({ type: blockType, category: libCat });
+      if (Blockly.Blocks?.[blockType]) {
+        allBlocks.push({ type: blockType, category: libCat });
+      }
     }
   }
 
@@ -203,10 +232,52 @@ function renderBlockList(searchFilter = '') {
       } else {
         cat.blocks = cat.blocks.filter((b) => b !== blockType);
       }
-      notifyChange();
+      emitLocalConfigChange();
       updatePreview();
     });
   });
+}
+
+function emitLocalConfigChange() {
+  suppressLocalConfigSync = true;
+  try {
+    notifyChange();
+  } finally {
+    suppressLocalConfigSync = false;
+  }
+}
+
+function updateSeedButtonState() {
+  const button = document.getElementById('btn-seed-toolbox');
+  if (!button) return;
+
+  const hasSavedWorkspace = Boolean(getConfig().blockly_setup?.starting_blocks);
+  button.disabled = !hasSavedWorkspace;
+  button.title = hasSavedWorkspace
+    ? 'Replace the current student toolbox with categories inferred from the saved Workspace blocks'
+    : 'Save starting blocks in the Workspace tab first';
+}
+
+function updateCategorySelectionUI() {
+  const container = document.getElementById('category-list');
+  if (!container) return;
+
+  container.querySelectorAll('.category-item').forEach((el) => {
+    el.classList.toggle('selected', parseInt(el.dataset.index) === selectedCategoryIndex);
+  });
+}
+
+function updateCurrentCategoryName() {
+  const categories = getConfig().blockly_setup.toolbox.categories;
+  const nameSpan = document.getElementById('current-category-name');
+  if (!nameSpan) return;
+
+  if (selectedCategoryIndex < 0 || selectedCategoryIndex >= categories.length) {
+    nameSpan.textContent = '';
+    return;
+  }
+
+  nameSpan.textContent = `— ${categories[selectedCategoryIndex].name}`;
 }
 
 function updatePreview() {
@@ -217,12 +288,7 @@ function updatePreview() {
   const categories = getConfig().blockly_setup.toolbox.categories;
   const toolboxDef = {
     kind: 'categoryToolbox',
-    contents: categories.map((cat) => ({
-      kind: 'category',
-      name: cat.name,
-      colour: cat.colour || undefined,
-      contents: cat.blocks.map((blockType) => ({ kind: 'block', type: blockType })),
-    })),
+    contents: buildCategoryToolboxContents(Blockly, categories, 'toolbox preview'),
   };
 
   if (previewWorkspace) {

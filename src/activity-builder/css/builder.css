@@ -214,6 +214,13 @@ body {
   margin-bottom: 12px;
 }
 
+#toolbox-category-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
 #toolbox-preview-area {
   background: #fff;
   border-radius: 8px;

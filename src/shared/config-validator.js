@@ -1,3 +1,5 @@
+import { getTestPoints } from './test-config.js';
+
 /**
  * Config Validator — Validates activity_config objects against the JSON Schema.
  *
@@ -67,12 +69,11 @@ export function validateConfig(config) {
         validateTestCase(tc, i, errors);
       });
 
-      // Check weights sum
-      const totalWeight = config.evaluation.test_cases.reduce((sum, tc) => sum + (tc.weight || 0), 0);
-      if (totalWeight !== 100 && config.evaluation.test_cases.length > 0) {
+      const totalPoints = config.evaluation.test_cases.reduce((sum, tc) => sum + getTestPoints(tc), 0);
+      if (totalPoints <= 0 && config.evaluation.test_cases.length > 0) {
         errors.push({
           path: 'evaluation.test_cases',
-          message: `Test weights sum to ${totalWeight}, should be 100`,
+          message: 'At least one test must award more than 0 points',
         });
       }
     }
@@ -112,10 +113,17 @@ function validateTestCase(tc, index, errors) {
   validateRequired(tc, 'id', 'string', errors, prefix);
   validateRequired(tc, 'type', 'string', errors, prefix);
 
-  if (tc.weight === undefined || tc.weight === null) {
-    errors.push({ path: `${prefix}.weight`, message: 'Required field is missing' });
-  } else if (typeof tc.weight !== 'number' || tc.weight < 0 || tc.weight > 100) {
-    errors.push({ path: `${prefix}.weight`, message: 'Must be a number between 0 and 100' });
+  const rawPoints = tc.points ?? tc.weight;
+  if (rawPoints === undefined || rawPoints === null) {
+    errors.push({ path: `${prefix}.points`, message: 'Required field is missing' });
+  } else if (!Number.isInteger(rawPoints) || rawPoints < 0) {
+    errors.push({ path: `${prefix}.points`, message: 'Must be an integer greater than or equal to 0' });
+  }
+
+  if (tc.prompt_inputs !== undefined) {
+    if (!Array.isArray(tc.prompt_inputs) || tc.prompt_inputs.some((value) => typeof value !== 'string')) {
+      errors.push({ path: `${prefix}.prompt_inputs`, message: 'Must be an array of strings' });
+    }
   }
 
   const validTypes = ['stdout_match', 'block_structure', 'variable_state'];

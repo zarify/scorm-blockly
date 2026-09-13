@@ -28,13 +28,15 @@ npm run build
 2. Open `dist/activity-builder/index.html` in your browser
 3. Use the tabbed interface to configure your activity:
    - **Config**: Set title, description, instructions
-   - **Toolbox**: Choose which block categories and blocks students see
    - **Workspace**: Design the starter blocks (what students see when they open the activity)
+   - **Toolbox**: Seed the student toolbox from the saved Workspace blocks, then rename categories, adjust colours, and choose which blocks students see
    - **Hints**: Create progressive hints triggered by workspace state or test failures
    - **Tests**: Define test cases (output matching, block structure checks, variable state)
    - **Preview**: See a summary of the configured activity
 4. Click **Export JSON** to download the config, or **Export SCORM** to get a `.zip`
 5. Upload the SCORM `.zip` to Moodle as a SCORM activity
+
+The builder and student runtime automatically ignore toolbox block types that are not supported by the bundled Blockly version, which helps older configs keep working across Blockly upgrades.
 
 ## Project Structure
 
@@ -78,6 +80,8 @@ Each activity is defined by a single JSON config file (`activity_config.json`) w
 | `stdout_match` | Console output matches expected string | "Output should be `1 2 3`" |
 | `block_structure` | Workspace has required block patterns | "Must use a for-loop" |
 | `variable_state` | Variable has correct value after execution | "`count` should equal 3" |
+
+Tests award integer **points** rather than percentages, and execution-based tests can provide ordered `prompt_inputs` for Blockly programs that use the input/prompt block. Prompt input matching is strict: missing or unused configured inputs fail the test explicitly.
 
 ### Hint Triggers
 

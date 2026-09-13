@@ -5,6 +5,7 @@
  * current config state and loading it in an iframe.
  */
 
+import { getTestPoints } from '../../shared/test-config.js';
 import { getConfig, onConfigChange } from './builder-app.js';
 
 export function initPreviewTab() {
@@ -109,7 +110,7 @@ function buildPreviewHtml(config) {
     <div class="test-preview">
       ${(config.evaluation?.test_cases || []).map((tc) => `
         <div class="test-item">
-          <strong>${tc.type}</strong> — ${escapeHtml(tc.id)} (${tc.weight}%)
+          <strong>${tc.type}</strong> — ${escapeHtml(tc.id)} (${getTestPoints(tc)} point${getTestPoints(tc) === 1 ? '' : 's'})
           ${tc.feedback_on_fail ? `<br><small style="color:#999">${escapeHtml(tc.feedback_on_fail)}</small>` : ''}
         </div>
       `).join('')}
