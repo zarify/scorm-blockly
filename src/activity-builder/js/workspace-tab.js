@@ -6,6 +6,10 @@
  */
 
 import { getConfig, notifyChange, onConfigChange, Blockly } from './builder-app.js';
+import {
+  buildCategoryToolboxContents,
+  createAuthoringToolboxCategories,
+} from '../../shared/blockly-toolbox.js';
 
 let designerWorkspace = null;
 
@@ -54,50 +58,11 @@ function ensureWorkspace() {
 }
 
 function buildFullToolbox() {
-  const categories = [
-    { name: 'Logic', colour: '#5C81A6', blocks: [
-      'controls_if', 'controls_ifelse', 'logic_compare', 'logic_operation',
-      'logic_negate', 'logic_boolean', 'logic_null', 'logic_ternary',
-    ]},
-    { name: 'Loops', colour: '#5CA65C', blocks: [
-      'controls_repeat_ext', 'controls_repeat', 'controls_whileUntil',
-      'controls_for', 'controls_forEach', 'controls_flow_statements',
-    ]},
-    { name: 'Math', colour: '#5C68A6', blocks: [
-      'math_number', 'math_arithmetic', 'math_single', 'math_trig',
-      'math_constant', 'math_number_property', 'math_round',
-      'math_on_list', 'math_modulo', 'math_constrain',
-      'math_random_int', 'math_random_float',
-    ]},
-    { name: 'Text', colour: '#5CA68D', blocks: [
-      'text', 'text_multiline', 'text_join', 'text_append',
-      'text_length', 'text_isEmpty', 'text_indexOf', 'text_charAt',
-      'text_getSubstring', 'text_changeCase', 'text_trim',
-      'text_count', 'text_replace', 'text_reverse', 'text_print',
-    ]},
-    { name: 'Lists', colour: '#745CA6', blocks: [
-      'lists_create_with', 'lists_repeat', 'lists_length',
-      'lists_isEmpty', 'lists_indexOf', 'lists_getIndex',
-      'lists_setIndex', 'lists_getSublist', 'lists_split',
-      'lists_sort', 'lists_reverse',
-    ]},
-    { name: 'Variables', colour: '#A65C81', custom: 'VARIABLE' },
-    { name: 'Functions', colour: '#995BA5', custom: 'PROCEDURE' },
-  ];
+  const categories = createAuthoringToolboxCategories();
 
   return {
     kind: 'categoryToolbox',
-    contents: categories.map((cat) => {
-      if (cat.custom) {
-        return { kind: 'category', name: cat.name, colour: cat.colour, custom: cat.custom };
-      }
-      return {
-        kind: 'category',
-        name: cat.name,
-        colour: cat.colour,
-        contents: cat.blocks.map((type) => ({ kind: 'block', type })),
-      };
-    }),
+    contents: buildCategoryToolboxContents(Blockly, categories, 'workspace starter toolbox'),
   };
 }
 

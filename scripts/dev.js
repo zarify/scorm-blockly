@@ -18,6 +18,8 @@ async function dev() {
     target: ['es2020'],
   });
 
+  await ctx.watch();
+
   const { host, port } = await ctx.serve({
     servedir: resolve(ROOT, 'dist/activity-builder'),
     port: 3000,

@@ -7,6 +7,7 @@
 import * as Blockly from 'blockly';
 import { javascriptGenerator } from 'blockly/javascript';
 import { validateConfig } from '../../shared/config-validator.js';
+import { createDefaultToolboxCategories } from '../../shared/blockly-toolbox.js';
 import { initConfigTab } from './config-tab.js';
 import { initToolboxTab } from './toolbox-tab.js';
 import { initWorkspaceTab } from './workspace-tab.js';
@@ -42,7 +43,7 @@ function createDefaultConfig() {
       max_attempts: null,
     },
     blockly_setup: {
-      toolbox: { categories: [] },
+      toolbox: { categories: createDefaultToolboxCategories() },
       starting_blocks: null,
       max_blocks: null,
       disabled_blocks: [],
