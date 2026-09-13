@@ -8,6 +8,7 @@ import * as Blockly from 'blockly';
 import { javascriptGenerator } from 'blockly/javascript';
 import { validateConfig } from '../../shared/config-validator.js';
 import { createDefaultToolboxCategories } from '../../shared/blockly-toolbox.js';
+import { configureJavascriptGenerator } from '../../shared/blockly-code-generator.js';
 import {
   normalizeBuilderDraftConfig,
   sanitizeConfigForExport,
@@ -19,6 +20,8 @@ import { initHintsTab } from './hints-tab.js';
 import { initTestsTab } from './tests-tab.js';
 import { initPreviewTab } from './preview-tab.js';
 import { exportJSON, exportSCORM, importConfig } from './export.js';
+
+configureJavascriptGenerator(javascriptGenerator);
 
 // Central config state — this is the config being built
 const state = {

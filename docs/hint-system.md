@@ -93,9 +93,7 @@ Conditions are optional — if provided, the workspace is also checked.
 
 ### `manual`
 
-Fires when the student requests a hint programmatically.
-
-> ⚠️ **No UI button exists yet.** The `requestHint()` function exists in JavaScript but there is currently no "Get Hint" button in the student UI. The `manual` trigger is functional at the API level but students cannot activate it. A "Get Hint" button is planned.
+Fires when the student clicks **💡 Get Hint** (or requests a hint programmatically).
 
 ```json
 {
@@ -276,4 +274,4 @@ Hints appear in the **hint panel** on the left side of the student UI. Each hint
 
 The hint panel is visible by default but can be hidden via `ui_settings.show_hint_panel: false`.
 
-> ⚠️ **Note:** A "Get Hint" button for manual hint requests is not yet present in the student UI. The `manual` trigger event is functional at the API level but students cannot activate it through the interface.
+> **Note:** The student UI now includes a **💡 Get Hint** button, so `manual` trigger hints can be exercised directly in both the exported activity and the builder preview.

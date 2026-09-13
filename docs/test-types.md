@@ -88,6 +88,7 @@ Runs the student's code and compares the captured `console.log` output against a
 
 - Remember that Blockly's `text_print` adds `\n` after each print. Include trailing newlines in `expected_output` for exact matching
 - Use `prompt_inputs` when the Blockly program asks the learner for input via the text prompt block
+- `prompt_inputs` are used by automated tests; the normal **▶ Run Code** action still uses real browser prompt dialogs for the live program run
 - Prompt input matching is strict: if the program asks for more inputs than configured, or leaves configured inputs unused, the test fails explicitly
 - Use `contains` for partial checking when exact whitespace doesn't matter
 - Use `regex` when multiple valid outputs are acceptable (e.g., any 3-digit number)

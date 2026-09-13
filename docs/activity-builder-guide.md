@@ -145,7 +145,7 @@ Create contextual hints that appear as students work. See [Hint System](hint-sys
 2. Set the **trigger event**:
    - **workspace_change** — When student modifies blocks (most common)
    - **test_fail** — After a failed test run
-   - **manual** — When manually requested (⚠️ no UI button yet)
+   - **manual** — When manually requested with the **💡 Get Hint** button
    - **timed** — After a time delay (⚠️ not yet implemented at runtime)
 3. Write the **message** shown to the student
 4. If using `workspace_change`, build a **condition** (see [Condition Reference](condition-reference.md))
@@ -211,19 +211,22 @@ For a "print 1 to 3" activity:
 
 ## Tab 6: 👁️ Preview
 
-Review a summary of your configured activity before exporting.
+Run the full student runtime with your current config before exporting.
 
-### What's Shown
+### What You Can Test
 
-- Activity title, description, and instructions
-- Toolbox categories with block counts
-- Hint messages
-- Test cases with types and points
-- Raw JSON config (for debugging)
+- The real Blockly workspace and restricted student toolbox
+- Starter blocks saved from the **Workspace** tab
+- Live program execution via **▶ Run Code**, including real `prompt()` dialogs and printed output
+- Automated test execution and scoring after each run
+- Manual and automatic hints via **💡 Get Hint** and failed runs
+- Generated JavaScript via **{ } Show Code**
 
-Click **Refresh Preview** to update after making changes.
+Click **Reload Preview** to restart the student runtime with your latest config.
 
-> **Note**: The preview is a static summary — it doesn't render an interactive Blockly workspace. Use the actual SCORM package to test the full student experience.
+> **Note**: The preview uses the same client-side runtime as the exported package, but it still runs without an LMS connection. SCORM score reporting is simulated locally.
+
+When you click **▶ Run Code**, the activity first executes the learner program normally, then runs the configured automated checks. If the program uses input blocks, the preview uses real browser prompt dialogs for the live run, while tests still use each test case's configured `prompt_inputs`.
 
 ---
 

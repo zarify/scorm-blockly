@@ -32,7 +32,7 @@ npm run build
    - **Toolbox**: Seed the student toolbox from the saved Workspace blocks, then rename categories, adjust colours, and choose which blocks students see
    - **Hints**: Create progressive hints triggered by workspace state or test failures
    - **Tests**: Define test cases (output matching, block structure checks, variable state)
-   - **Preview**: See a summary of the configured activity
+   - **Preview**: Run the real student experience inside the builder to test blocks, hints, tests, and generated code before exporting
 4. Click **Export JSON** to download the config, or **Export SCORM** to get a `.zip`
 5. Upload the SCORM `.zip` to Moodle as a SCORM activity
 

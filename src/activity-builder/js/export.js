@@ -142,11 +142,12 @@ function generateIndexHtml(config) {
         <div id="controls">
           <button id="btn-run" class="btn btn-primary">▶ Run Code</button>
           <button id="btn-reset" class="btn btn-secondary">↺ Reset</button>
+          <button id="btn-request-hint" class="btn btn-secondary">💡 Get Hint</button>
           <button id="btn-code-toggle" class="btn btn-secondary">{ } Show Code</button>
         </div>
       </main>
       <aside id="right-panel">
-        <div id="output-panel" class="panel"><p class="output-placeholder">Run your code to see results here.</p></div>
+        <div id="output-panel" class="panel"><p class="output-placeholder">Run your code to see console output, prompts, and automated checks here.</p></div>
         <div id="code-panel" class="panel" style="display:none"><h3>Generated Code</h3><pre><code></code></pre></div>
       </aside>
     </div>
@@ -179,7 +180,8 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 .hint-dismiss { position: absolute; top: 6px; right: 8px; background: none; border: none; font-size: 14px; cursor: pointer; color: #999; }
 #workspace-area { display: flex; flex-direction: column; overflow: hidden; }
 #blockly-workspace { flex: 1; min-height: 0; }
-#controls { display: flex; gap: 8px; padding: 10px 16px; background: #fff; border-top: 1px solid #ddd; flex-shrink: 0; }
+#controls { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 16px; background: #fff; border-top: 1px solid #ddd; flex-shrink: 0; }
+#btn-request-hint { display: none; }
 .btn { padding: 8px 20px; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; }
 .btn:disabled { opacity: 0.6; cursor: not-allowed; }
 .btn-primary { background: #1976d2; color: #fff; }
@@ -188,6 +190,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-
 #right-panel { display: flex; flex-direction: column; border-left: 1px solid #ddd; overflow-y: auto; }
 #output-panel { flex: 1; }
 .output-placeholder { color: #999; font-style: italic; font-size: 14px; }
+.output-section, .results-section { margin-bottom: 16px; }
+.output-section h3, .prompt-log h4, #code-panel h3 { font-size: 14px; margin-bottom: 8px; }
+.output-console { background: #263238; color: #eeffff; padding: 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; word-break: break-word; margin-bottom: 12px; }
+.output-empty { color: #666; font-size: 14px; margin-bottom: 12px; }
+.prompt-log { background: #f8f9fb; border: 1px solid #e3e7ee; border-radius: 6px; padding: 12px; margin-bottom: 12px; }
+.prompt-list { list-style: none; padding: 0; }
+.prompt-item { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 13px; line-height: 1.5; margin-bottom: 6px; }
+.prompt-item:last-child { margin-bottom: 0; }
+.prompt-arrow { color: #666; }
+.prompt-item code { background: #eef2f7; border-radius: 4px; padding: 1px 6px; }
+.run-error { background: #ffebee; color: #b71c1c; border-radius: 6px; padding: 10px 12px; font-size: 14px; }
 .results-header { padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 15px; }
 .results-pass { background: #e8f5e9; color: #2e7d32; }
 .results-fail { background: #ffebee; color: #c62828; }

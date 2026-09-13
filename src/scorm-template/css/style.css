@@ -139,10 +139,15 @@ body {
 #controls {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
   padding: 10px 16px;
   background: #fff;
   border-top: 1px solid #ddd;
   flex-shrink: 0;
+}
+
+#btn-request-hint {
+  display: none;
 }
 
 /* Buttons */
@@ -197,6 +202,82 @@ body {
   font-size: 14px;
 }
 
+.output-section,
+.results-section {
+  margin-bottom: 16px;
+}
+
+.output-section h3,
+.prompt-log h4,
+#code-panel h3 {
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.output-console {
+  background: #263238;
+  color: #eeffff;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 12px;
+}
+
+.output-empty {
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.prompt-log {
+  background: #f8f9fb;
+  border: 1px solid #e3e7ee;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.prompt-list {
+  list-style: none;
+  padding: 0;
+}
+
+.prompt-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+
+.prompt-item:last-child {
+  margin-bottom: 0;
+}
+
+.prompt-arrow {
+  color: #666;
+}
+
+.prompt-item code {
+  background: #eef2f7;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.run-error {
+  background: #ffebee;
+  color: #b71c1c;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 14px;
+}
+
 /* Results */
 .results-header {
   padding: 10px 12px;
@@ -235,11 +316,6 @@ body {
   border-top: 1px solid #ddd;
   max-height: 300px;
   overflow-y: auto;
-}
-
-#code-panel h3 {
-  font-size: 14px;
-  margin-bottom: 8px;
 }
 
 #code-panel pre {
