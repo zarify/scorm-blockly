@@ -1,6 +1,6 @@
 # Test Types
 
-Tests define how student work is evaluated. Each test runs an assertion and contributes to the overall score based on its weight.
+Tests define how student work is evaluated. Each test runs an assertion and contributes to the overall score based on its point value.
 
 ## Overview
 
@@ -16,7 +16,7 @@ Tests define how student work is evaluated. Each test runs an assertion and cont
 |-------|------|----------|-------------|
 | `id` | string | ✅ | Unique test identifier |
 | `type` | string | ✅ | `"stdout_match"`, `"block_structure"`, or `"variable_state"` |
-| `weight` | integer | ✅ | Percentage of total score (0–100). All weights must sum to 100 |
+| `points` | integer | ✅ | Integer points awarded when the test passes |
 | `feedback_on_fail` | string | No | Custom message shown to students when this test fails |
 
 ---
@@ -29,6 +29,7 @@ Runs the student's code and compares the captured `console.log` output against a
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
+| `prompt_inputs` | array of strings | No | `[]` | Values returned to successive `window.prompt()` calls |
 | `expected_output` | string | ✅ | — | The expected console output |
 | `match_mode` | string | No | `"exact"` | How to compare: `"exact"`, `"contains"`, or `"regex"` |
 
@@ -58,7 +59,7 @@ Runs the student's code and compares the captured `console.log` output against a
   "type": "stdout_match",
   "expected_output": "Hello, World!\n",
   "match_mode": "exact",
-  "weight": 100,
+  "points": 10,
   "feedback_on_fail": "Make sure you print exactly: Hello, World!"
 }
 
@@ -68,7 +69,7 @@ Runs the student's code and compares the captured `console.log` output against a
   "type": "stdout_match",
   "expected_output": "Hello",
   "match_mode": "contains",
-  "weight": 50,
+  "points": 5,
   "feedback_on_fail": "Your output should include the word 'Hello'"
 }
 
@@ -78,7 +79,7 @@ Runs the student's code and compares the captured `console.log` output against a
   "type": "stdout_match",
   "expected_output": "^(\\d+\\n){3}$",
   "match_mode": "regex",
-  "weight": 60,
+  "points": 6,
   "feedback_on_fail": "Expected three numbers, each on a new line"
 }
 ```
@@ -86,6 +87,8 @@ Runs the student's code and compares the captured `console.log` output against a
 ### Tips
 
 - Remember that Blockly's `text_print` adds `\n` after each print. Include trailing newlines in `expected_output` for exact matching
+- Use `prompt_inputs` when the Blockly program asks the learner for input via the text prompt block
+- Prompt input matching is strict: if the program asks for more inputs than configured, or leaves configured inputs unused, the test fails explicitly
 - Use `contains` for partial checking when exact whitespace doesn't matter
 - Use `regex` when multiple valid outputs are acceptable (e.g., any 3-digit number)
 
@@ -112,7 +115,7 @@ Inspects the student's workspace for specific block arrangements **without execu
     "type": "block_exists",
     "block_type": "controls_for"
   },
-  "weight": 20,
+  "points": 2,
   "feedback_on_fail": "Use a for-loop block from the Loops category"
 }
 
@@ -126,7 +129,7 @@ Inspects the student's workspace for specific block arrangements **without execu
     "inner_type": "text_print",
     "input_name": "DO"
   },
-  "weight": 20,
+  "points": 2,
   "feedback_on_fail": "Put the print block inside the loop body"
 }
 
@@ -147,7 +150,7 @@ Inspects the student's workspace for specific block arrangements **without execu
       }
     ]
   },
-  "weight": 30,
+  "points": 3,
   "feedback_on_fail": "Use a for-loop and a variable. Don't use break/continue."
 }
 ```
@@ -157,6 +160,7 @@ Inspects the student's workspace for specific block arrangements **without execu
 - **Enforce learning objectives**: Require students to use specific block types (e.g., "must use a loop, not copy-paste")
 - **Partial credit**: Give points for having the right structure even if output is wrong
 - **Scaffolded activities**: Check intermediate steps before the full solution
+- Use the Tests tab's block pickers to choose block types from the saved Workspace/toolbox suggestions instead of memorizing Blockly identifiers
 
 ---
 
@@ -168,6 +172,7 @@ Runs the student's code and checks the value of a specific variable after execut
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
+| `prompt_inputs` | array of strings | No | `[]` | Values returned to successive `window.prompt()` calls |
 | `variable_name` | string | ✅ | — | Name of the variable to inspect after code runs |
 | `expected_value` | any | ✅ | — | The expected value to compare against |
 | `comparison` | string | No | `"equals"` | Comparison operator |
@@ -194,7 +199,7 @@ Runs the student's code and checks the value of a specific variable after execut
   "variable_name": "count",
   "expected_value": 3,
   "comparison": "equals",
-  "weight": 50,
+  "points": 5,
   "feedback_on_fail": "The variable 'count' should be 3 after your code runs"
 }
 
@@ -205,7 +210,7 @@ Runs the student's code and checks the value of a specific variable after execut
   "variable_name": "result",
   "expected_value": 10,
   "comparison": "gt",
-  "weight": 30,
+  "points": 3,
   "feedback_on_fail": "The result should be greater than 10"
 }
 
@@ -216,24 +221,16 @@ Runs the student's code and checks the value of a specific variable after execut
   "variable_name": "name",
   "expected_value": "string",
   "comparison": "type",
-  "weight": 20,
+  "points": 2,
   "feedback_on_fail": "The variable 'name' should contain text, not a number"
 }
 ```
 
-### ⚠️ Current Limitations
+### Notes
 
-> **Variable capture is currently limited.** The Web Worker captures a hardcoded set of variable names (currently only `count`). Tests for other variable names (e.g., `a`, `b`, `result`) will report "Variable not found" even if the code defines them. This is a known issue — dynamic variable discovery based on the test config's `variable_name` fields is planned but not yet implemented.
-
-**What works now:**
-- `variable_name: "count"` — captured and testable
-- All other variable names — **not yet captured**
-
-**Workaround:** Use `stdout_match` tests instead. Have the student print the variable value, then check the output.
-
-Other limitations:
-- Variable capture relies on the variable being accessible in the global scope after code execution
-- The fallback execution mode (no Web Worker) returns an empty variables object
+- Variable capture now follows the `variable_name` fields requested by your test cases
+- Prompt input matching is strict here too: missing or unused configured inputs cause the test to fail before value comparison
+- Variable capture still relies on the variable being addressable as a JavaScript identifier in generated code
 - Complex object state may not be fully captured
 
 ---
@@ -248,7 +245,7 @@ Tests that require code execution (`stdout_match` and `variable_state`) share th
 2. An infinite loop trap is prepended (`var __loopTrap = 10000;`)
 3. Code is wrapped in a Web Worker with `console.log` interception
 4. Worker executes the code via `new Function(code)()`
-5. After execution, stdout and variable state are sent back via `postMessage`
+5. After execution, stdout, prompt responses, and requested variable state are sent back via `postMessage`
 6. **Timeout**: 5 seconds. If the worker doesn't respond, it's terminated and the test reports "Execution timed out (possible infinite loop)"
 
 ### Fallback Execution
@@ -270,10 +267,10 @@ If Web Workers are unavailable (rare), the code executes directly via `new Funct
 
 ```
 For each test:
-  score = test.passed ? test.weight : 0
+  score = test.passed ? test.points : 0
 
 totalScore = sum of all test scores
-maxScore = sum of all test weights  (should be 100)
+maxScore = sum of all test points
 ```
 
 The percentage reported to the LMS is:
@@ -281,7 +278,7 @@ The percentage reported to the LMS is:
 lmsScore = Math.round((totalScore / maxScore) * 100)
 ```
 
-> **Note:** The `grading_mode` and `max_score` fields in the config schema are defined but **not yet implemented** at runtime. Currently, the score is always calculated as a weighted percentage (0–100) regardless of the `grading_mode` setting. Pass/fail status uses a hardcoded threshold of 50.
+> **Note:** The `grading_mode` and `max_score` fields in the config schema are defined but **not yet implemented** at runtime. Currently, the LMS score is still reported as a derived percentage based on points earned divided by total available points.
 
 ---
 
@@ -294,7 +291,7 @@ Test only the program's output:
 ```json
 {
   "test_cases": [
-    { "id": "t1", "type": "stdout_match", "expected_output": "expected\n", "weight": 100 }
+    { "id": "t1", "type": "stdout_match", "expected_output": "expected\n", "points": 10 }
   ]
 }
 ```
@@ -306,8 +303,8 @@ Grade based on block arrangement (no code execution):
 ```json
 {
   "test_cases": [
-    { "id": "t1", "type": "block_structure", "conditions": { ... }, "weight": 50 },
-    { "id": "t2", "type": "block_structure", "conditions": { ... }, "weight": 50 }
+    { "id": "t1", "type": "block_structure", "conditions": { ... }, "points": 5 },
+    { "id": "t2", "type": "block_structure", "conditions": { ... }, "points": 5 }
   ]
 }
 ```
@@ -319,23 +316,23 @@ Combine output, structure, and state checks:
 ```json
 {
   "test_cases": [
-    { "id": "t1", "type": "stdout_match", "expected_output": "1\n2\n3\n", "weight": 50 },
-    { "id": "t2", "type": "block_structure", "conditions": { ... }, "weight": 25 },
-    { "id": "t3", "type": "variable_state", "variable_name": "i", "expected_value": 4, "weight": 25 }
+    { "id": "t1", "type": "stdout_match", "expected_output": "1\n2\n3\n", "points": 5 },
+    { "id": "t2", "type": "block_structure", "conditions": { ... }, "points": 3 },
+    { "id": "t3", "type": "variable_state", "variable_name": "i", "expected_value": 4, "points": 2 }
   ]
 }
 ```
 
 ### Partial Credit
 
-Use lower weights for stretch goals:
+Use lower point values for stretch goals:
 
 ```json
 {
   "test_cases": [
-    { "id": "basic", "type": "stdout_match", "expected_output": "done\n", "weight": 70 },
-    { "id": "bonus_structure", "type": "block_structure", "conditions": { ... }, "weight": 15 },
-    { "id": "bonus_efficiency", "type": "block_structure", "conditions": { ... }, "weight": 15 }
+    { "id": "basic", "type": "stdout_match", "expected_output": "done\n", "points": 7 },
+    { "id": "bonus_structure", "type": "block_structure", "conditions": { ... }, "points": 2 },
+    { "id": "bonus_efficiency", "type": "block_structure", "conditions": { ... }, "points": 1 }
   ]
 }
 ```

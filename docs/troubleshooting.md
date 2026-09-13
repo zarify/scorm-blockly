@@ -64,7 +64,7 @@ Blockly workspaces need to be visible when initialised. If you switch tabs too q
 Check that your JSON file:
 - Is valid JSON (use a JSON validator)
 - Has the required fields: `metadata.activity_id`, `metadata.title`, `blockly_setup.toolbox.categories`, `evaluation.test_cases`
-- Has test weights that sum to 100
+- Has at least one test worth more than 0 points
 
 The error toast shows the specific validation error.
 
@@ -145,15 +145,14 @@ Common differences between local preview and Moodle:
 
 ## Configuration Issues
 
-### Test weights don't sum to 100
+### Tests all show 0 possible points
 
-The validator warns about this but doesn't prevent it. Behaviour with incorrect weights:
+If every test is worth 0 points, grading cannot award any score.
 
-- **Weights < 100**: Maximum achievable score is less than 100%
-- **Weights > 100**: Score can exceed the expected maximum
-- **All weights 0**: Every test reports 0 points regardless of pass/fail
+- **Symptom**: Tests run, but the score never increases
+- **Cause**: Every test's `points` value is 0
 
-Fix: Adjust weights in the Tests tab (or JSON) to sum to exactly 100.
+Fix: Adjust the point values in the Tests tab (or JSON) so at least one test awards points.
 
 ### `block_nested` condition not matching
 

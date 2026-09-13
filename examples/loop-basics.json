@@ -111,7 +111,7 @@
         "type": "stdout_match",
         "expected_output": "1\n2\n3\n",
         "match_mode": "exact",
-        "weight": 60,
+        "points": 6,
         "feedback_on_fail": "Expected output: 1, 2, 3 — each on its own line."
       },
       {
@@ -124,7 +124,7 @@
             { "type": "block_exists", "block_type": "controls_repeat_ext", "min_count": 1 }
           ]
         },
-        "weight": 20,
+        "points": 2,
         "feedback_on_fail": "Try using a loop block instead of repeating print blocks manually."
       },
       {
@@ -137,7 +137,7 @@
             { "type": "block_nested", "outer_type": "controls_repeat_ext", "inner_type": "text_print", "input_name": "DO" }
           ]
         },
-        "weight": 20,
+        "points": 2,
         "feedback_on_fail": "Make sure the print block is inside the loop, not outside it."
       }
     ]

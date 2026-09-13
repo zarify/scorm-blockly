@@ -185,26 +185,27 @@ Define how student work is evaluated. See [Test Types](test-types.md) for full d
    - **stdout_match** — Check `console.log` output
    - **block_structure** — Check workspace block arrangement
    - **variable_state** — Check variable values after code execution
-3. Set the **weight** (percentage of total score)
-4. Configure type-specific fields
+3. Set the **points** awarded for passing the test
+4. Configure type-specific fields, including `prompt_inputs` for execution-based tests when the program uses the input block. Missing or unused configured inputs fail the test explicitly
 5. Write **feedback** shown when the test fails
 
-### Weight System
+### Points System
 
-- All weights must sum to **100%**
-- The indicator at the bottom shows: ✅ green (100%), ⚠️ yellow (not 100%), ❌ red (all zero)
-- In **weighted** grading mode, the score is the sum of passing test weights
+- Points can be any non-negative integers
+- The indicator at the bottom shows the total points available across all tests
+- In **weighted** grading mode, the score is the sum of passing test points
 - In **pass_fail** grading mode, the score is 100 if all tests pass, 0 otherwise
+- For `block_structure` tests, the editor suggests block types from the saved Workspace and configured toolbox so you do not need to memorize Blockly block IDs
 
 ### Example Test Configuration
 
 For a "print 1 to 3" activity:
 
-| Test | Type | Weight | Purpose |
+| Test | Type | Points | Purpose |
 |------|------|--------|---------|
-| Output check | `stdout_match` | 60% | Correct output "1\n2\n3\n" |
-| Uses loop | `block_structure` | 20% | Has a loop block |
-| Print in loop | `block_structure` | 20% | Print block nested inside loop |
+| Output check | `stdout_match` | 6 | Correct output "1\n2\n3\n" |
+| Uses loop | `block_structure` | 2 | Has a loop block |
+| Print in loop | `block_structure` | 2 | Print block nested inside loop |
 
 ---
 
@@ -217,7 +218,7 @@ Review a summary of your configured activity before exporting.
 - Activity title, description, and instructions
 - Toolbox categories with block counts
 - Hint messages
-- Test cases with types and weights
+- Test cases with types and points
 - Raw JSON config (for debugging)
 
 Click **Refresh Preview** to update after making changes.

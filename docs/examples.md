@@ -36,7 +36,7 @@ Print the text "Hello, World!" using Blockly blocks.
   "type": "stdout_match",
   "expected_output": "Hello, World!\n",
   "match_mode": "exact",
-  "weight": 100
+  "points": 10
 }
 ```
 
@@ -90,7 +90,7 @@ Print the numbers 1, 2, and 3, each on a new line, using a loop.
 }
 ```
 
-**Tests:** Mixed assessment with three weighted tests.
+**Tests:** Mixed assessment with three point-based tests.
 
 | Test | Type | Weight | What It Checks |
 |------|------|--------|---------------|
@@ -119,7 +119,7 @@ Print the numbers 1, 2, and 3, each on a new line, using a loop.
       }
     ]
   },
-  "weight": 20
+  "points": 2
 }
 ```
 
@@ -203,7 +203,7 @@ Swap the values of two variables `a` and `b` (starting as `a=5`, `b=10`) so that
   "variable_name": "a",
   "expected_value": 10,
   "comparison": "equals",
-  "weight": 35
+  "points": 4
 }
 ```
 

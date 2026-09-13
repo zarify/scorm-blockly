@@ -207,15 +207,15 @@ Each hint object:
 
 | Field | Type | Required | Default | Values | Description |
 |-------|------|----------|---------|--------|-------------|
-| `grading_mode` | string | No | `"weighted"` | `"pass_fail"`, `"weighted"` | ⚠️ **Not yet implemented at runtime.** Intended: pass_fail = 100 or 0, weighted = sum of passing test weights. Currently always uses weighted calculation. |
+| `grading_mode` | string | No | `"weighted"` | `"pass_fail"`, `"weighted"` | ⚠️ **Not yet implemented at runtime.** Intended: pass_fail = 100 or 0, weighted = sum of passing test points. Currently the LMS score is derived from points earned divided by total available points. |
 | `max_score` | integer | No | `100` | `1`–`100` | ⚠️ **Not yet implemented at runtime.** Score is always reported as 0–100 percentage. |
 | `test_cases` | array | ✅ | — | Minimum 1 | Array of test case objects |
 
 ### Grading Modes
 
-> ⚠️ **Not yet implemented at runtime.** Currently, the score is always calculated as a weighted percentage regardless of the `grading_mode` setting.
+> ⚠️ **Not yet implemented at runtime.** Currently, the score is always calculated as a percentage derived from points earned divided by total available points.
 
-**`weighted`** (default): Each test contributes its weight to the score. If a student passes tests worth 60% and fails tests worth 40%, they get 60/100.
+**`weighted`** (default): Each test contributes its points to the score. If a student earns 6 out of 10 total points, they get 60/100.
 
 **`pass_fail`**: Score is 100 if ALL tests pass, 0 if any test fails.
 
@@ -227,7 +227,8 @@ All test cases share these fields:
 |-------|------|----------|---------|-------------|
 | `id` | string | ✅ | — | Unique test identifier |
 | `type` | string | ✅ | — | `"stdout_match"`, `"block_structure"`, or `"variable_state"` |
-| `weight` | integer | ✅ | — | Percentage of total score (0–100). All weights must sum to 100 |
+| `points` | integer | ✅ | — | Integer points awarded when the test passes |
+| `weight` | integer | Legacy | — | Legacy alias for `points`, still accepted on import |
 | `feedback_on_fail` | string | No | — | Custom message shown when this test fails |
 
 See [Test Types](test-types.md) for type-specific fields.
@@ -244,7 +245,7 @@ See [Test Types](test-types.md) for type-specific fields.
         "type": "stdout_match",
         "expected_output": "1\n2\n3\n",
         "match_mode": "exact",
-        "weight": 60,
+        "points": 6,
         "feedback_on_fail": "Expected output: 1, 2, 3 (each on a new line)"
       },
       {
@@ -254,7 +255,7 @@ See [Test Types](test-types.md) for type-specific fields.
           "type": "block_exists",
           "block_type": "controls_for"
         },
-        "weight": 20,
+        "points": 2,
         "feedback_on_fail": "Use a for-loop block"
       },
       {
@@ -266,7 +267,7 @@ See [Test Types](test-types.md) for type-specific fields.
           "inner_type": "text_print",
           "input_name": "DO"
         },
-        "weight": 20,
+        "points": 2,
         "feedback_on_fail": "Put the print block inside the loop"
       }
     ]
@@ -311,7 +312,7 @@ Here is a minimal but complete config:
         "id": "test_hello",
         "type": "stdout_match",
         "expected_output": "Hello, World!\n",
-        "weight": 100,
+        "points": 10,
         "feedback_on_fail": "Make sure you print exactly: Hello, World!"
       }
     ]

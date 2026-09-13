@@ -81,6 +81,8 @@ Each activity is defined by a single JSON config file (`activity_config.json`) w
 | `block_structure` | Workspace has required block patterns | "Must use a for-loop" |
 | `variable_state` | Variable has correct value after execution | "`count` should equal 3" |
 
+Tests award integer **points** rather than percentages, and execution-based tests can provide ordered `prompt_inputs` for Blockly programs that use the input/prompt block. Prompt input matching is strict: missing or unused configured inputs fail the test explicitly.
+
 ### Hint Triggers
 
 | Event | Description |

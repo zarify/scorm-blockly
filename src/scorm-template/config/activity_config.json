@@ -81,7 +81,7 @@
         "type": "stdout_match",
         "expected_output": "Hello, World!\n",
         "match_mode": "exact",
-        "weight": 100,
+        "points": 10,
         "feedback_on_fail": "Make sure you're printing exactly: Hello, World!"
       }
     ]

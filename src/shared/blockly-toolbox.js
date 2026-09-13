@@ -143,6 +143,72 @@ export function getBlockTypesFromWorkspaceState(Blockly, workspaceState) {
 }
 
 /**
+ * Extract block types, input names, and field names from a saved workspace.
+ * @param {typeof import('blockly')} Blockly
+ * @param {object|null} workspaceState
+ * @returns {{
+ *   blockTypes: string[],
+ *   inputNamesByBlockType: Record<string, string[]>,
+ *   fieldNamesByBlockType: Record<string, string[]>,
+ * }}
+ */
+export function getWorkspaceBlockMetadata(Blockly, workspaceState) {
+  if (!workspaceState) {
+    return {
+      blockTypes: [],
+      inputNamesByBlockType: {},
+      fieldNamesByBlockType: {},
+    };
+  }
+
+  const workspace = new Blockly.Workspace();
+
+  try {
+    Blockly.serialization.workspaces.load(workspaceState, workspace);
+
+    /** @type {Map<string, Set<string>>} */
+    const inputNamesByBlockType = new Map();
+    /** @type {Map<string, Set<string>>} */
+    const fieldNamesByBlockType = new Map();
+
+    for (const block of workspace.getAllBlocks(false)) {
+      if (!inputNamesByBlockType.has(block.type)) {
+        inputNamesByBlockType.set(block.type, new Set());
+      }
+      if (!fieldNamesByBlockType.has(block.type)) {
+        fieldNamesByBlockType.set(block.type, new Set());
+      }
+
+      for (const input of block.inputList || []) {
+        if (input?.name) {
+          inputNamesByBlockType.get(block.type)?.add(input.name);
+        }
+      }
+
+      for (const field of block.getFields?.() || []) {
+        if (field?.name) {
+          fieldNamesByBlockType.get(block.type)?.add(field.name);
+        }
+      }
+    }
+
+    return {
+      blockTypes: [...new Set(workspace.getAllBlocks(false).map((block) => block.type))].sort(),
+      inputNamesByBlockType: Object.fromEntries(
+        [...inputNamesByBlockType.entries()].map(([blockType, names]) => [blockType, [...names].sort()]),
+      ),
+      fieldNamesByBlockType: Object.fromEntries(
+        [...fieldNamesByBlockType.entries()].map(([blockType, names]) => [blockType, [...names].sort()]),
+      ),
+    };
+  } finally {
+    if (typeof workspace.dispose === 'function') {
+      workspace.dispose();
+    }
+  }
+}
+
+/**
  * Check whether a Blockly block type is registered in the current runtime.
  * @param {typeof import('blockly')} Blockly
  * @param {string} blockType
