@@ -8,7 +8,10 @@ import * as Blockly from 'blockly';
 import { javascriptGenerator } from 'blockly/javascript';
 import { validateConfig } from '../../shared/config-validator.js';
 import { createDefaultToolboxCategories } from '../../shared/blockly-toolbox.js';
-import { normalizeTestConfig } from '../../shared/test-config.js';
+import {
+  normalizeBuilderDraftConfig,
+  sanitizeConfigForExport,
+} from '../../shared/config-normalizer.js';
 import { initConfigTab } from './config-tab.js';
 import { initToolboxTab } from './toolbox-tab.js';
 import { initWorkspaceTab } from './workspace-tab.js';
@@ -65,7 +68,7 @@ export function getConfig() {
 
 /** Replace entire config (used by import). */
 export function setConfig(newConfig) {
-  state.config = normalizeTestConfig(newConfig);
+  state.config = normalizeBuilderDraftConfig(newConfig).config;
   notifyChange();
 }
 
@@ -132,22 +135,46 @@ function setupTabs() {
 
 function setupHeaderActions() {
   document.getElementById('btn-export-json').addEventListener('click', () => {
-    const validation = validateConfig(state.config);
-    if (!validation.valid) {
-      showToast(`Config has ${validation.errors.length} error(s) — check all tabs`, 'error');
+    const { config: exportConfig, omissions } = sanitizeConfigForExport(state.config);
+    const omittedSummary = formatExportOmissions(omissions);
+    if (omittedSummary) {
+      const confirmed = window.confirm(
+        `This JSON export will omit ${omittedSummary} from the saved file.\n\nContinue exporting?`,
+      );
+      if (!confirmed) {
+        showToast('JSON export cancelled.', 'info');
+        return;
+      }
     }
-    exportJSON(state.config);
-    showToast('Config exported as JSON', 'success');
+    exportJSON(exportConfig);
+    showToast(
+      omittedSummary ? `JSON exported — omitted ${omittedSummary}` : 'Config exported as JSON',
+      'success',
+    );
   });
 
   document.getElementById('btn-export-scorm').addEventListener('click', async () => {
-    const validation = validateConfig(state.config);
+    const { config: exportConfig, omissions } = sanitizeConfigForExport(state.config);
+    const validation = validateConfig(exportConfig);
     if (!validation.valid) {
       showToast(`Fix ${validation.errors.length} error(s) before exporting SCORM`, 'error');
       return;
     }
-    await exportSCORM(state.config);
-    showToast('SCORM package exported!', 'success');
+    const omittedSummary = formatExportOmissions(omissions);
+    if (omittedSummary) {
+      const confirmed = window.confirm(
+        `This SCORM export will omit ${omittedSummary} from the package.\n\nContinue exporting?`,
+      );
+      if (!confirmed) {
+        showToast('SCORM export cancelled.', 'info');
+        return;
+      }
+    }
+    await exportSCORM(exportConfig);
+    showToast(
+      omittedSummary ? `SCORM exported — omitted ${omittedSummary}` : 'SCORM package exported!',
+      'success',
+    );
   });
 
   document.getElementById('btn-import').addEventListener('click', () => {
@@ -166,6 +193,20 @@ function setupHeaderActions() {
     }
     e.target.value = ''; // Reset file input
   });
+}
+
+function formatExportOmissions(omissions) {
+  const parts = [];
+  if (omissions.hints > 0) {
+    parts.push(`${omissions.hints} incomplete hint${omissions.hints === 1 ? '' : 's'}`);
+  }
+  if (omissions.tests > 0) {
+    parts.push(`${omissions.tests} incomplete test${omissions.tests === 1 ? '' : 's'}`);
+  }
+  if (omissions.categories > 0) {
+    parts.push(`${omissions.categories} empty categor${omissions.categories === 1 ? 'y' : 'ies'}`);
+  }
+  return parts.join(', ');
 }
 
 // Start when DOM is ready

@@ -1,0 +1,400 @@
+import { getDefaultCategoryColour } from './blockly-toolbox.js';
+import {
+  VALID_CONDITION_TYPES,
+  VALID_HINT_EVENTS,
+  VALID_STDOUT_MATCH_MODES,
+  VALID_TEST_TYPES,
+  VALID_VARIABLE_COMPARISONS,
+  validateHintConfig,
+  validateTestCaseConfig,
+  validateToolboxCategoryConfig,
+} from './config-validator.js';
+import { getPromptInputs, getTestPoints, normalizeTestConfig } from './test-config.js';
+
+/**
+ * Normalize an arbitrary config object into a builder-safe draft shape.
+ * Missing or malformed nested values are replaced with editable defaults so a
+ * partially edited draft can always be reopened in the builder.
+ * @param {object} rawConfig
+ * @returns {{ config: object }}
+ */
+export function normalizeBuilderDraftConfig(rawConfig) {
+  const source = cloneConfig(rawConfig);
+  const config = createBaseConfig(source);
+
+  const rawCategories = source?.blockly_setup?.toolbox?.categories;
+  config.blockly_setup.toolbox.categories = Array.isArray(rawCategories)
+    ? rawCategories.filter(isObjectLike).map(normalizeDraftToolboxCategory)
+    : [];
+
+  const rawHints = source?.hints;
+  config.hints = Array.isArray(rawHints)
+    ? rawHints.filter(isObjectLike).map(normalizeDraftHint)
+    : [];
+
+  const rawTests = source?.evaluation?.test_cases;
+  config.evaluation.test_cases = Array.isArray(rawTests)
+    ? rawTests.filter(isObjectLike).map(normalizeDraftTestCase)
+    : [];
+
+  return { config: normalizeTestConfig(config) };
+}
+
+/**
+ * Prepare a config export payload by omitting incomplete optional items while
+ * preserving valid data in a publishable shape.
+ * @param {object} rawConfig
+ * @returns {{ config: object, omissions: { categories: number, hints: number, tests: number } }}
+ */
+export function sanitizeConfigForExport(rawConfig) {
+  const source = cloneConfig(rawConfig);
+  const config = createBaseConfig(source);
+  const omissions = { categories: 0, hints: 0, tests: 0 };
+
+  const rawCategories = source?.blockly_setup?.toolbox?.categories;
+  const publishCategories = Array.isArray(rawCategories)
+    ? rawCategories.filter(isObjectLike).map(normalizePublishToolboxCategory)
+    : [];
+  config.blockly_setup.toolbox.categories = publishCategories.filter((category, index) => {
+    const valid = validateToolboxCategoryConfig(category, index).valid;
+    if (!valid) omissions.categories += 1;
+    return valid;
+  });
+
+  const rawHints = source?.hints;
+  const publishHints = Array.isArray(rawHints)
+    ? rawHints.filter(isObjectLike).map(normalizePublishHint)
+    : [];
+  config.hints = publishHints.filter((hint, index) => {
+    const valid = validateHintConfig(hint, index).valid;
+    if (!valid) omissions.hints += 1;
+    return valid;
+  });
+
+  const rawTests = source?.evaluation?.test_cases;
+  const publishTests = Array.isArray(rawTests)
+    ? rawTests.filter(isObjectLike).map(normalizePublishTestCase)
+    : [];
+  config.evaluation.test_cases = publishTests.filter((testCase, index) => {
+    const valid = validateTestCaseConfig(testCase, index).valid;
+    if (!valid) omissions.tests += 1;
+    return valid;
+  });
+
+  return { config: normalizeTestConfig(config), omissions };
+}
+
+export const sanitizeConfigForScorm = sanitizeConfigForExport;
+
+function createBaseConfig(source) {
+  const metadata = isObjectLike(source?.metadata) ? source.metadata : {};
+  const instructions = isObjectLike(source?.instructions) ? source.instructions : {};
+  const uiSettings = isObjectLike(source?.ui_settings) ? source.ui_settings : {};
+  const blocklySetup = isObjectLike(source?.blockly_setup) ? source.blockly_setup : {};
+  const evaluation = isObjectLike(source?.evaluation) ? source.evaluation : {};
+
+  return {
+    metadata: {
+      activity_id: asStringOr(metadata.activity_id, ''),
+      title: asStringOr(metadata.title, ''),
+      version: asStringOr(metadata.version, '1.0'),
+      description: asStringOr(metadata.description, ''),
+    },
+    instructions: {
+      main: asStringOr(instructions.main, ''),
+      steps: Array.isArray(instructions.steps)
+        ? instructions.steps.filter((step) => step !== undefined && step !== null).map((step) => String(step))
+        : [],
+    },
+    ui_settings: {
+      theme: asStringOr(uiSettings.theme, 'default'),
+      show_code_toggle: uiSettings.show_code_toggle !== false,
+      show_hint_panel: uiSettings.show_hint_panel !== false,
+      max_attempts: asOptionalInteger(uiSettings.max_attempts, null),
+    },
+    blockly_setup: {
+      toolbox: { categories: [] },
+      starting_blocks: isObjectLike(blocklySetup.starting_blocks) ? blocklySetup.starting_blocks : null,
+      max_blocks: asOptionalInteger(blocklySetup.max_blocks, null),
+      disabled_blocks: Array.isArray(blocklySetup.disabled_blocks)
+        ? blocklySetup.disabled_blocks.filter(isNonEmptyString)
+        : [],
+    },
+    hints: [],
+    evaluation: {
+      grading_mode: asStringOr(evaluation.grading_mode, 'weighted'),
+      max_score: asOptionalInteger(evaluation.max_score, 100) ?? 100,
+      test_cases: [],
+    },
+  };
+}
+
+function normalizeDraftToolboxCategory(category, index) {
+  return {
+    name: asStringOr(category.name, `Category ${index + 1}`),
+    colour: asStringOr(category.colour, getDefaultCategoryColour(index)),
+    blocks: Array.isArray(category.blocks) ? category.blocks.filter(isNonEmptyString) : [],
+  };
+}
+
+function normalizePublishToolboxCategory(category, index) {
+  return {
+    name: asStringOr(category.name, ''),
+    colour: asStringOr(category.colour, getDefaultCategoryColour(index)),
+    blocks: Array.isArray(category.blocks) ? category.blocks.filter(isNonEmptyString) : [],
+  };
+}
+
+function normalizeDraftHint(hint, index) {
+  const trigger = isObjectLike(hint.trigger) ? hint.trigger : {};
+
+  return {
+    id: asStringOr(hint.id, `hint_${index + 1}`),
+    trigger: {
+      event: VALID_HINT_EVENTS.includes(trigger.event) ? trigger.event : 'workspace_change',
+      conditions: normalizeDraftCondition(trigger.conditions),
+      after_attempts: asNonNegativeInteger(trigger.after_attempts, 0),
+    },
+    message: asStringOr(hint.message, ''),
+    priority: asPositiveInteger(hint.priority, index + 1),
+    delay_seconds: asNonNegativeInteger(hint.delay_seconds, 0),
+    show_once: Boolean(hint.show_once),
+  };
+}
+
+function normalizePublishHint(hint) {
+  const trigger = isObjectLike(hint.trigger) ? hint.trigger : null;
+
+  return {
+    id: asStringOr(hint.id, ''),
+    trigger: trigger
+      ? {
+          event: asStringOr(trigger.event, ''),
+          ...(trigger.conditions !== undefined ? { conditions: normalizePublishCondition(trigger.conditions) } : {}),
+          ...(trigger.after_attempts !== undefined
+            ? { after_attempts: asNonNegativeInteger(trigger.after_attempts, 0) }
+            : {}),
+        }
+      : null,
+    message: asStringOr(hint.message, ''),
+    ...(hint.priority !== undefined ? { priority: asPositiveInteger(hint.priority, 1) } : {}),
+    ...(hint.delay_seconds !== undefined ? { delay_seconds: asNonNegativeInteger(hint.delay_seconds, 0) } : {}),
+    ...(hint.show_once !== undefined ? { show_once: Boolean(hint.show_once) } : {}),
+  };
+}
+
+function normalizeDraftTestCase(testCase, index) {
+  const type = VALID_TEST_TYPES.includes(testCase.type) ? testCase.type : 'stdout_match';
+  const normalized = {
+    id: asStringOr(testCase.id, `test_${index + 1}`),
+    type,
+    points: getTestPoints(testCase),
+    feedback_on_fail: asStringOr(testCase.feedback_on_fail, ''),
+  };
+
+  if (type === 'stdout_match') {
+    normalized.prompt_inputs = getPromptInputs(testCase);
+    normalized.expected_output = asStringOr(testCase.expected_output, '');
+    normalized.match_mode = VALID_STDOUT_MATCH_MODES.includes(testCase.match_mode)
+      ? testCase.match_mode
+      : 'exact';
+  } else if (type === 'block_structure') {
+    normalized.conditions = normalizeDraftCondition(testCase.conditions);
+  } else if (type === 'variable_state') {
+    normalized.prompt_inputs = getPromptInputs(testCase);
+    normalized.variable_name = asStringOr(testCase.variable_name, '');
+    normalized.expected_value = testCase.expected_value ?? '';
+    normalized.comparison = VALID_VARIABLE_COMPARISONS.includes(testCase.comparison)
+      ? testCase.comparison
+      : 'equals';
+  }
+
+  return normalized;
+}
+
+function normalizePublishTestCase(testCase) {
+  const type = asStringOr(testCase.type, '');
+  const normalized = {
+    id: asStringOr(testCase.id, ''),
+    type,
+    points: getTestPoints(testCase),
+    ...(testCase.feedback_on_fail !== undefined ? { feedback_on_fail: asStringOr(testCase.feedback_on_fail, '') } : {}),
+  };
+
+  if (type === 'stdout_match') {
+    normalized.prompt_inputs = getPromptInputs(testCase);
+    normalized.expected_output = asStringOr(testCase.expected_output, '');
+    if (testCase.match_mode !== undefined) {
+      normalized.match_mode = asStringOr(testCase.match_mode, '');
+    }
+  } else if (type === 'block_structure') {
+    normalized.conditions = normalizePublishCondition(testCase.conditions);
+  } else if (type === 'variable_state') {
+    normalized.prompt_inputs = getPromptInputs(testCase);
+    normalized.variable_name = asStringOr(testCase.variable_name, '');
+    if (testCase.expected_value !== undefined) {
+      normalized.expected_value = testCase.expected_value;
+    }
+    if (testCase.comparison !== undefined) {
+      normalized.comparison = asStringOr(testCase.comparison, '');
+    }
+  }
+
+  return normalized;
+}
+
+function normalizeDraftCondition(condition) {
+  if (!isObjectLike(condition) || !VALID_CONDITION_TYPES.includes(condition.type)) {
+    return { type: 'workspace_empty' };
+  }
+
+  switch (condition.type) {
+    case 'block_exists':
+      return {
+        type: condition.type,
+        block_type: asStringOr(condition.block_type, ''),
+        min_count: asPositiveInteger(condition.min_count, 1),
+      };
+    case 'block_missing':
+      return {
+        type: condition.type,
+        block_type: asStringOr(condition.block_type, ''),
+      };
+    case 'block_connected':
+      return {
+        type: condition.type,
+        upper_type: asStringOr(condition.upper_type, ''),
+        lower_type: asStringOr(condition.lower_type, ''),
+      };
+    case 'block_nested':
+      return {
+        type: condition.type,
+        outer_type: asStringOr(condition.outer_type, ''),
+        inner_type: asStringOr(condition.inner_type, ''),
+        input_name: asStringOr(condition.input_name, ''),
+      };
+    case 'block_field_value':
+      return {
+        type: condition.type,
+        block_type: asStringOr(condition.block_type, ''),
+        field_name: asStringOr(condition.field_name, ''),
+        expected_value: condition.expected_value ?? '',
+      };
+    case 'block_count':
+      return {
+        type: condition.type,
+        block_type: asStringOr(condition.block_type, ''),
+        min: asNonNegativeInteger(condition.min, 0),
+        max: asNonNegativeInteger(condition.max, 10),
+      };
+    case 'all':
+    case 'any':
+    case 'none': {
+      const conditions = Array.isArray(condition.conditions)
+        ? condition.conditions.filter(isObjectLike).map(normalizeDraftCondition)
+        : [];
+      return {
+        type: condition.type,
+        conditions: conditions.length > 0 ? conditions : [{ type: 'workspace_empty' }],
+      };
+    }
+    default:
+      return { type: 'workspace_empty' };
+  }
+}
+
+function normalizePublishCondition(condition) {
+  if (!isObjectLike(condition)) return null;
+
+  const type = asStringOr(condition.type, '');
+  if (!VALID_CONDITION_TYPES.includes(type)) {
+    return { type };
+  }
+
+  switch (type) {
+    case 'block_exists':
+      return {
+        type,
+        block_type: asStringOr(condition.block_type, ''),
+        ...(condition.min_count !== undefined ? { min_count: asPositiveInteger(condition.min_count, 1) } : {}),
+      };
+    case 'block_missing':
+      return {
+        type,
+        block_type: asStringOr(condition.block_type, ''),
+      };
+    case 'block_connected':
+      return {
+        type,
+        upper_type: asStringOr(condition.upper_type, ''),
+        lower_type: asStringOr(condition.lower_type, ''),
+      };
+    case 'block_nested':
+      return {
+        type,
+        outer_type: asStringOr(condition.outer_type, ''),
+        inner_type: asStringOr(condition.inner_type, ''),
+        input_name: asStringOr(condition.input_name, ''),
+      };
+    case 'block_field_value':
+      return {
+        type,
+        block_type: asStringOr(condition.block_type, ''),
+        field_name: asStringOr(condition.field_name, ''),
+        ...(condition.expected_value !== undefined ? { expected_value: condition.expected_value } : {}),
+      };
+    case 'block_count':
+      return {
+        type,
+        block_type: asStringOr(condition.block_type, ''),
+        ...(condition.min !== undefined ? { min: asNonNegativeInteger(condition.min, 0) } : {}),
+        ...(condition.max !== undefined ? { max: asNonNegativeInteger(condition.max, 10) } : {}),
+      };
+    case 'all':
+    case 'any':
+    case 'none':
+      return {
+        type,
+        conditions: Array.isArray(condition.conditions)
+          ? condition.conditions.filter(isObjectLike).map(normalizePublishCondition)
+          : [],
+      };
+    default:
+      return { type: 'workspace_empty' };
+  }
+}
+
+function cloneConfig(config) {
+  if (!isObjectLike(config)) return {};
+  return JSON.parse(JSON.stringify(config));
+}
+
+function isObjectLike(value) {
+  return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+}
+
+function isNonEmptyString(value) {
+  return typeof value === 'string' && value.trim() !== '';
+}
+
+function asStringOr(value, fallback) {
+  return typeof value === 'string' ? value : fallback;
+}
+
+function asOptionalInteger(value, fallback) {
+  if (value === null || value === undefined || value === '') return fallback;
+  const numericValue = Number(value);
+  return Number.isFinite(numericValue) ? Math.trunc(numericValue) : fallback;
+}
+
+function asNonNegativeInteger(value, fallback) {
+  const normalized = asOptionalInteger(value, fallback);
+  if (normalized === null) return null;
+  return normalized < 0 ? fallback : normalized;
+}
+
+function asPositiveInteger(value, fallback) {
+  const normalized = asOptionalInteger(value, fallback);
+  if (normalized === null) return fallback;
+  return normalized < 1 ? fallback : normalized;
+}

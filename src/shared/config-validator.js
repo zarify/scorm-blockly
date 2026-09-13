@@ -1,5 +1,14 @@
 import { getTestPoints } from './test-config.js';
 
+export const VALID_TEST_TYPES = ['stdout_match', 'block_structure', 'variable_state'];
+export const VALID_STDOUT_MATCH_MODES = ['exact', 'contains', 'regex'];
+export const VALID_VARIABLE_COMPARISONS = ['equals', 'gt', 'lt', 'gte', 'lte', 'contains', 'type'];
+export const VALID_CONDITION_TYPES = [
+  'block_exists', 'block_missing', 'block_connected', 'block_nested',
+  'block_field_value', 'block_count', 'workspace_empty', 'all', 'any', 'none',
+];
+export const VALID_HINT_EVENTS = ['workspace_change', 'test_fail', 'manual', 'timed'];
+
 /**
  * Config Validator — Validates activity_config objects against the JSON Schema.
  *
@@ -46,12 +55,7 @@ export function validateConfig(config) {
       validateRequired(config.blockly_setup.toolbox, 'categories', 'array', errors, 'blockly_setup.toolbox');
       if (Array.isArray(config.blockly_setup.toolbox.categories)) {
         config.blockly_setup.toolbox.categories.forEach((cat, i) => {
-          const prefix = `blockly_setup.toolbox.categories[${i}]`;
-          validateRequired(cat, 'name', 'string', errors, prefix);
-          validateRequired(cat, 'blocks', 'array', errors, prefix);
-          if (Array.isArray(cat.blocks) && cat.blocks.length === 0) {
-            errors.push({ path: `${prefix}.blocks`, message: 'Category must have at least one block' });
-          }
+          validateToolboxCategory(cat, i, errors);
         });
       }
     }
@@ -89,6 +93,80 @@ export function validateConfig(config) {
   return { valid: errors.length === 0, errors };
 }
 
+/**
+ * Validate the looser draft shape used by the builder import/export flow.
+ * This checks that required top-level containers exist without requiring a
+ * fully publishable activity.
+ * @param {object} config
+ * @returns {{ valid: boolean, errors: ValidationError[] }}
+ */
+export function validateBuilderDraftConfig(config) {
+  const errors = [];
+
+  if (!config || typeof config !== 'object') {
+    return { valid: false, errors: [{ path: '', message: 'Config must be a non-null object' }] };
+  }
+
+  validateRequired(config, 'metadata', 'object', errors);
+  validateRequired(config, 'instructions', 'object', errors);
+  if (config.instructions) {
+    validateRequired(config.instructions, 'steps', 'array', errors, 'instructions');
+  }
+  validateRequired(config, 'ui_settings', 'object', errors);
+  validateRequired(config, 'blockly_setup', 'object', errors);
+  if (config.blockly_setup) {
+    validateRequired(config.blockly_setup, 'toolbox', 'object', errors, 'blockly_setup');
+    if (config.blockly_setup.toolbox) {
+      validateRequired(config.blockly_setup.toolbox, 'categories', 'array', errors, 'blockly_setup.toolbox');
+    }
+  }
+  if (config.hints !== undefined && !Array.isArray(config.hints)) {
+    errors.push({ path: 'hints', message: 'Must be an array' });
+  }
+  validateRequired(config, 'evaluation', 'object', errors);
+  if (config.evaluation) {
+    validateRequired(config.evaluation, 'test_cases', 'array', errors, 'evaluation');
+  }
+
+  return { valid: errors.length === 0, errors };
+}
+
+/**
+ * Validate one toolbox category.
+ * @param {object} category
+ * @param {number} [index]
+ * @returns {{ valid: boolean, errors: ValidationError[] }}
+ */
+export function validateToolboxCategoryConfig(category, index = 0) {
+  const errors = [];
+  validateToolboxCategory(category, index, errors);
+  return { valid: errors.length === 0, errors };
+}
+
+/**
+ * Validate one test case.
+ * @param {object} testCase
+ * @param {number} [index]
+ * @returns {{ valid: boolean, errors: ValidationError[] }}
+ */
+export function validateTestCaseConfig(testCase, index = 0) {
+  const errors = [];
+  validateTestCase(testCase, index, errors);
+  return { valid: errors.length === 0, errors };
+}
+
+/**
+ * Validate one hint.
+ * @param {object} hint
+ * @param {number} [index]
+ * @returns {{ valid: boolean, errors: ValidationError[] }}
+ */
+export function validateHintConfig(hint, index = 0) {
+  const errors = [];
+  validateHint(hint, index, errors);
+  return { valid: errors.length === 0, errors };
+}
+
 function validateRequired(obj, field, expectedType, errors, prefix = '') {
   const path = prefix ? `${prefix}.${field}` : field;
   if (obj[field] === undefined || obj[field] === null) {
@@ -107,11 +185,30 @@ function validateRequired(obj, field, expectedType, errors, prefix = '') {
   return true;
 }
 
+function validateRequiredString(obj, field, errors, prefix = '') {
+  const path = prefix ? `${prefix}.${field}` : field;
+  if (!validateRequired(obj, field, 'string', errors, prefix)) return false;
+  if (obj[field].trim() === '') {
+    errors.push({ path, message: 'Must not be empty' });
+    return false;
+  }
+  return true;
+}
+
+function validateToolboxCategory(category, index, errors) {
+  const prefix = `blockly_setup.toolbox.categories[${index}]`;
+  validateRequiredString(category, 'name', errors, prefix);
+  validateRequired(category, 'blocks', 'array', errors, prefix);
+  if (Array.isArray(category.blocks) && category.blocks.length === 0) {
+    errors.push({ path: `${prefix}.blocks`, message: 'Category must have at least one block' });
+  }
+}
+
 function validateTestCase(tc, index, errors) {
   const prefix = `evaluation.test_cases[${index}]`;
 
-  validateRequired(tc, 'id', 'string', errors, prefix);
-  validateRequired(tc, 'type', 'string', errors, prefix);
+  validateRequiredString(tc, 'id', errors, prefix);
+  validateRequiredString(tc, 'type', errors, prefix);
 
   const rawPoints = tc.points ?? tc.weight;
   if (rawPoints === undefined || rawPoints === null) {
@@ -126,14 +223,13 @@ function validateTestCase(tc, index, errors) {
     }
   }
 
-  const validTypes = ['stdout_match', 'block_structure', 'variable_state'];
-  if (tc.type && !validTypes.includes(tc.type)) {
-    errors.push({ path: `${prefix}.type`, message: `Must be one of: ${validTypes.join(', ')}` });
+  if (tc.type && !VALID_TEST_TYPES.includes(tc.type)) {
+    errors.push({ path: `${prefix}.type`, message: `Must be one of: ${VALID_TEST_TYPES.join(', ')}` });
   }
 
   if (tc.type === 'stdout_match') {
     validateRequired(tc, 'expected_output', 'string', errors, prefix);
-    if (tc.match_mode && !['exact', 'contains', 'regex'].includes(tc.match_mode)) {
+    if (tc.match_mode && !VALID_STDOUT_MATCH_MODES.includes(tc.match_mode)) {
       errors.push({ path: `${prefix}.match_mode`, message: 'Must be exact, contains, or regex' });
     }
   } else if (tc.type === 'block_structure') {
@@ -143,11 +239,11 @@ function validateTestCase(tc, index, errors) {
       validateCondition(tc.conditions, `${prefix}.conditions`, errors);
     }
   } else if (tc.type === 'variable_state') {
-    validateRequired(tc, 'variable_name', 'string', errors, prefix);
+    validateRequiredString(tc, 'variable_name', errors, prefix);
     if (tc.expected_value === undefined) {
       errors.push({ path: `${prefix}.expected_value`, message: 'Required for variable_state test type' });
     }
-    if (tc.comparison && !['equals', 'gt', 'lt', 'gte', 'lte', 'contains', 'type'].includes(tc.comparison)) {
+    if (tc.comparison && !VALID_VARIABLE_COMPARISONS.includes(tc.comparison)) {
       errors.push({ path: `${prefix}.comparison`, message: 'Invalid comparison operator' });
     }
   }
@@ -159,31 +255,26 @@ function validateCondition(condition, path, errors) {
     return;
   }
 
-  const validTypes = [
-    'block_exists', 'block_missing', 'block_connected', 'block_nested',
-    'block_field_value', 'block_count', 'workspace_empty', 'all', 'any', 'none',
-  ];
-
-  if (!validTypes.includes(condition.type)) {
-    errors.push({ path: `${path}.type`, message: `Must be one of: ${validTypes.join(', ')}` });
+  if (!VALID_CONDITION_TYPES.includes(condition.type)) {
+    errors.push({ path: `${path}.type`, message: `Must be one of: ${VALID_CONDITION_TYPES.join(', ')}` });
     return;
   }
 
   // Validate condition-specific fields
   if (['block_exists', 'block_missing'].includes(condition.type)) {
-    validateRequired(condition, 'block_type', 'string', errors, path);
+    validateRequiredString(condition, 'block_type', errors, path);
   } else if (condition.type === 'block_connected') {
-    validateRequired(condition, 'upper_type', 'string', errors, path);
-    validateRequired(condition, 'lower_type', 'string', errors, path);
+    validateRequiredString(condition, 'upper_type', errors, path);
+    validateRequiredString(condition, 'lower_type', errors, path);
   } else if (condition.type === 'block_nested') {
-    validateRequired(condition, 'outer_type', 'string', errors, path);
-    validateRequired(condition, 'inner_type', 'string', errors, path);
-    validateRequired(condition, 'input_name', 'string', errors, path);
+    validateRequiredString(condition, 'outer_type', errors, path);
+    validateRequiredString(condition, 'inner_type', errors, path);
+    validateRequiredString(condition, 'input_name', errors, path);
   } else if (condition.type === 'block_field_value') {
-    validateRequired(condition, 'block_type', 'string', errors, path);
-    validateRequired(condition, 'field_name', 'string', errors, path);
+    validateRequiredString(condition, 'block_type', errors, path);
+    validateRequiredString(condition, 'field_name', errors, path);
   } else if (condition.type === 'block_count') {
-    validateRequired(condition, 'block_type', 'string', errors, path);
+    validateRequiredString(condition, 'block_type', errors, path);
   } else if (['all', 'any', 'none'].includes(condition.type)) {
     if (!Array.isArray(condition.conditions) || condition.conditions.length === 0) {
       errors.push({ path: `${path}.conditions`, message: 'Composite condition requires a non-empty conditions array' });
@@ -197,14 +288,13 @@ function validateCondition(condition, path, errors) {
 
 function validateHint(hint, index, errors) {
   const prefix = `hints[${index}]`;
-  validateRequired(hint, 'id', 'string', errors, prefix);
-  validateRequired(hint, 'message', 'string', errors, prefix);
+  validateRequiredString(hint, 'id', errors, prefix);
+  validateRequiredString(hint, 'message', errors, prefix);
   validateRequired(hint, 'trigger', 'object', errors, prefix);
 
   if (hint.trigger) {
-    const validEvents = ['workspace_change', 'test_fail', 'manual', 'timed'];
-    if (!validEvents.includes(hint.trigger.event)) {
-      errors.push({ path: `${prefix}.trigger.event`, message: `Must be one of: ${validEvents.join(', ')}` });
+    if (!VALID_HINT_EVENTS.includes(hint.trigger.event)) {
+      errors.push({ path: `${prefix}.trigger.event`, message: `Must be one of: ${VALID_HINT_EVENTS.join(', ')}` });
     }
     if (hint.trigger.conditions) {
       validateCondition(hint.trigger.conditions, `${prefix}.trigger.conditions`, errors);

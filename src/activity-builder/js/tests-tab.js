@@ -4,9 +4,10 @@
 
 import { getConfig, notifyChange, onConfigChange, Blockly } from './builder-app.js';
 import {
-  DEFAULT_TOOLBOX_BLOCK_LIBRARY,
-  getWorkspaceBlockMetadata,
-} from '../../shared/blockly-toolbox.js';
+  createConditionSuggestionIds,
+  getConditionBlockDefinitionMetadata,
+  getSuggestedConditionBlockTypes,
+} from './condition-suggestions.js';
 import {
   formatPromptInputs,
   getPromptInputs,
@@ -301,7 +302,7 @@ function renderConditionBuilder(container, condition, onChange) {
     { value: 'block_exists', label: 'Block exists' },
     { value: 'block_missing', label: 'Block missing' },
     { value: 'block_connected', label: 'Blocks connected' },
-    { value: 'block_nested', label: 'Block nested' },
+    { value: 'block_nested', label: 'Block attached to another block input' },
     { value: 'block_field_value', label: 'Field has value' },
     { value: 'block_count', label: 'Block count' },
     { value: 'workspace_empty', label: 'Workspace empty' },
@@ -333,11 +334,12 @@ function renderConditionBuilder(container, condition, onChange) {
 }
 
 function renderSimpleConditionFields(container, condition, onChange) {
-  const blockTypeOptions = getSuggestedBlockTypes()
+  const datalistIds = createConditionSuggestionIds('test-condition');
+  const blockTypeOptions = getSuggestedConditionBlockTypes(Blockly, getConfig())
     .map((blockType) => `<option value="${escapeAttr(blockType)}"></option>`)
     .join('');
-  const outerBlockMetadata = getBlockDefinitionMetadata(condition.outer_type);
-  const conditionBlockMetadata = getBlockDefinitionMetadata(condition.block_type);
+  const outerBlockMetadata = getConditionBlockDefinitionMetadata(Blockly, condition.outer_type);
+  const conditionBlockMetadata = getConditionBlockDefinitionMetadata(Blockly, condition.block_type);
 
   const bind = (selector, field, transform, options = {}) => {
     const el = container.querySelector(selector);
@@ -355,44 +357,44 @@ function renderSimpleConditionFields(container, condition, onChange) {
     case 'block_exists':
     case 'block_missing':
       html = `
-        <datalist id="condition-block-types">${blockTypeOptions}</datalist>
-        <input type="text" class="cond-bt" list="condition-block-types" value="${escapeAttr(condition.block_type || '')}" placeholder="Block type" style="width:100%">
+        <datalist id="${datalistIds.blockTypes}">${blockTypeOptions}</datalist>
+        <input type="text" class="cond-bt" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.block_type || '')}" placeholder="Block type" style="width:100%">
       `;
       break;
     case 'block_connected':
       html = `
-        <datalist id="condition-block-types">${blockTypeOptions}</datalist>
-        <input type="text" class="cond-ut" list="condition-block-types" value="${escapeAttr(condition.upper_type || '')}" placeholder="Upper block type" style="width:100%;margin-bottom:4px">
-        <input type="text" class="cond-lt" list="condition-block-types" value="${escapeAttr(condition.lower_type || '')}" placeholder="Lower block type" style="width:100%">`;
+        <datalist id="${datalistIds.blockTypes}">${blockTypeOptions}</datalist>
+        <input type="text" class="cond-ut" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.upper_type || '')}" placeholder="Upper block type" style="width:100%;margin-bottom:4px">
+        <input type="text" class="cond-lt" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.lower_type || '')}" placeholder="Lower block type" style="width:100%">`;
       break;
     case 'block_nested':
       html = `
-        <datalist id="condition-block-types">${blockTypeOptions}</datalist>
-        <datalist id="condition-input-names">
+        <datalist id="${datalistIds.blockTypes}">${blockTypeOptions}</datalist>
+        <datalist id="${datalistIds.inputNames}">
           ${outerBlockMetadata.inputNames.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}
         </datalist>
-        <input type="text" class="cond-ot" list="condition-block-types" value="${escapeAttr(condition.outer_type || '')}" placeholder="Outer block type" style="width:100%;margin-bottom:4px">
-        <input type="text" class="cond-it" list="condition-block-types" value="${escapeAttr(condition.inner_type || '')}" placeholder="Inner block type" style="width:100%;margin-bottom:4px">
-        <input type="text" class="cond-in" list="condition-input-names" value="${escapeAttr(condition.input_name || '')}" placeholder="Input name (e.g. DO)" style="width:100%">
-        ${outerBlockMetadata.inputNames.length > 0 ? `<small>Inputs on ${escapeHtml(condition.outer_type || 'this block')}: ${outerBlockMetadata.inputNames.join(', ')}</small>` : ''}
+        <input type="text" class="cond-ot" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.outer_type || '')}" placeholder="Parent block type" style="width:100%;margin-bottom:4px">
+        <input type="text" class="cond-it" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.inner_type || '')}" placeholder="Attached block type" style="width:100%;margin-bottom:4px">
+        <input type="text" class="cond-in" list="${datalistIds.inputNames}" value="${escapeAttr(condition.input_name || '')}" placeholder="Input / argument name (e.g. DO or VALUE)" style="width:100%">
+        ${outerBlockMetadata.inputNames.length > 0 ? `<small>Inputs on ${escapeHtml(condition.outer_type || 'this block')}: ${outerBlockMetadata.inputNames.join(', ')}. This works for statement inputs like DO and value inputs like VALUE or TEXT.</small>` : ''}
       `;
       break;
     case 'block_field_value':
       html = `
-        <datalist id="condition-block-types">${blockTypeOptions}</datalist>
-        <datalist id="condition-field-names">
+        <datalist id="${datalistIds.blockTypes}">${blockTypeOptions}</datalist>
+        <datalist id="${datalistIds.fieldNames}">
           ${conditionBlockMetadata.fieldNames.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}
         </datalist>
-        <input type="text" class="cond-bt" list="condition-block-types" value="${escapeAttr(condition.block_type || '')}" placeholder="Block type" style="width:100%;margin-bottom:4px">
-        <input type="text" class="cond-fn" list="condition-field-names" value="${escapeAttr(condition.field_name || '')}" placeholder="Field name" style="width:100%;margin-bottom:4px">
+        <input type="text" class="cond-bt" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.block_type || '')}" placeholder="Block type" style="width:100%;margin-bottom:4px">
+        <input type="text" class="cond-fn" list="${datalistIds.fieldNames}" value="${escapeAttr(condition.field_name || '')}" placeholder="Field name" style="width:100%;margin-bottom:4px">
         <input type="text" class="cond-ev" value="${escapeAttr(String(condition.expected_value ?? ''))}" placeholder="Expected value" style="width:100%">
         ${conditionBlockMetadata.fieldNames.length > 0 ? `<small>Fields on ${escapeHtml(condition.block_type || 'this block')}: ${conditionBlockMetadata.fieldNames.join(', ')}</small>` : ''}
       `;
       break;
     case 'block_count':
       html = `
-        <datalist id="condition-block-types">${blockTypeOptions}</datalist>
-        <input type="text" class="cond-bt" list="condition-block-types" value="${escapeAttr(condition.block_type || '')}" placeholder="Block type" style="width:100%;margin-bottom:4px">
+        <datalist id="${datalistIds.blockTypes}">${blockTypeOptions}</datalist>
+        <input type="text" class="cond-bt" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.block_type || '')}" placeholder="Block type" style="width:100%;margin-bottom:4px">
         <div style="display:flex;gap:8px">
           <input type="number" class="cond-mn" value="${condition.min ?? 0}" placeholder="Min" min="0" style="flex:1">
           <input type="number" class="cond-mx" value="${condition.max ?? 10}" placeholder="Max" min="0" style="flex:1">
@@ -443,42 +445,6 @@ function updateWeightIndicator() {
 
 function formatPointsLabel(points) {
   return `${points} point${points === 1 ? '' : 's'}`;
-}
-
-function getSuggestedBlockTypes() {
-  const workspaceMetadata = getWorkspaceBlockMetadata(
-    Blockly,
-    getConfig().blockly_setup?.starting_blocks || null,
-  );
-  const toolboxBlockTypes = (getConfig().blockly_setup?.toolbox?.categories || [])
-    .flatMap((category) => category.blocks || []);
-  const defaultBlockTypes = Object.values(DEFAULT_TOOLBOX_BLOCK_LIBRARY).flat();
-
-  return [...new Set([...workspaceMetadata.blockTypes, ...toolboxBlockTypes, ...defaultBlockTypes])]
-    .filter((blockType) => Blockly.Blocks?.[blockType])
-    .sort();
-}
-
-function getBlockDefinitionMetadata(blockType) {
-  if (!blockType || !Blockly.Blocks?.[blockType]) {
-    return { inputNames: [], fieldNames: [] };
-  }
-
-  const workspace = new Blockly.Workspace();
-
-  try {
-    const block = workspace.newBlock(blockType);
-    return {
-      inputNames: [...new Set((block.inputList || []).map((input) => input.name).filter(Boolean))].sort(),
-      fieldNames: [...new Set((block.getFields?.() || []).map((field) => field.name).filter(Boolean))].sort(),
-    };
-  } catch {
-    return { inputNames: [], fieldNames: [] };
-  } finally {
-    if (typeof workspace.dispose === 'function') {
-      workspace.dispose();
-    }
-  }
 }
 
 function bindField(id, setter) {

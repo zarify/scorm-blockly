@@ -3,7 +3,8 @@
  */
 
 import JSZip from 'jszip';
-import { validateConfig } from '../../shared/config-validator.js';
+import { normalizeBuilderDraftConfig } from '../../shared/config-normalizer.js';
+import { validateBuilderDraftConfig } from '../../shared/config-validator.js';
 
 /**
  * Export the config as a JSON file download.
@@ -55,17 +56,18 @@ export async function exportSCORM(config) {
  */
 export async function importConfig(file) {
   const text = await file.text();
-  let config;
+  let rawConfig;
   try {
-    config = JSON.parse(text);
+    rawConfig = JSON.parse(text);
   } catch {
     throw new Error('Invalid JSON file');
   }
 
-  const validation = validateConfig(config);
+  const { config } = normalizeBuilderDraftConfig(rawConfig);
+  const validation = validateBuilderDraftConfig(config);
   if (!validation.valid) {
     const firstErrors = validation.errors.slice(0, 3).map((e) => `${e.path}: ${e.message}`);
-    throw new Error(`Config validation failed:\n${firstErrors.join('\n')}`);
+    throw new Error(`Imported draft is missing required sections:\n${firstErrors.join('\n')}`);
   }
 
   return config;
