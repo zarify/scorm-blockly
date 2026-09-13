@@ -97,7 +97,7 @@ Tests award integer **points** rather than percentages, and execution-based test
 Conditions inspect the Blockly workspace and support:
 - `block_exists` / `block_missing` — Check if a block type is present
 - `block_connected` — Two blocks are connected sequentially
-- `block_nested` — Block is inside another block's input
+- `block_nested` — Block is attached to another block's input or argument (for example `text_prompt_ext` in `variables_set.VALUE`, or a block inside a loop `DO` input)
 - `block_field_value` — Block field has a specific value
 - `block_count` — Count of a block type within a range
 - `all` / `any` / `none` — Composite logic (AND / OR / NOT)

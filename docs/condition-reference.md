@@ -13,7 +13,7 @@ Conditions are used in two places:
 | [`block_exists`](#block_exists) | Block type is present | `block_type`, `min_count` |
 | [`block_missing`](#block_missing) | Block type is absent | `block_type` |
 | [`block_connected`](#block_connected) | Two blocks are snapped together vertically | `upper_type`, `lower_type` |
-| [`block_nested`](#block_nested) | Block is inside another block's input | `outer_type`, `inner_type`, `input_name` |
+| [`block_nested`](#block_nested) | Block is attached to another block's input or argument | `outer_type`, `inner_type`, `input_name` |
 | [`block_field_value`](#block_field_value) | Block field has a specific value | `block_type`, `field_name`, `expected_value` |
 | [`block_count`](#block_count) | Count of a block type is within range | `block_type`, `min`, `max` |
 | [`workspace_empty`](#workspace_empty) | Workspace has no blocks | — |
@@ -123,7 +123,7 @@ Passes if any block of `upper_type` has a block of `lower_type` directly connect
 
 ### `block_nested`
 
-Passes if a block of `inner_type` is found inside a specific input of an `outer_type` block.
+Passes if a block of `inner_type` is attached to a specific input of an `outer_type` block. This covers both statement nesting and value/argument connections.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -133,7 +133,7 @@ Passes if a block of `inner_type` is found inside a specific input of an `outer_
 
 **How it works:**
 
-For **value inputs** (e.g., `"VALUE"`, `"IF"`): Checks the directly connected block.
+For **value inputs** (e.g., `"VALUE"`, `"TEXT"`, `"IF"`): Checks the directly connected block.
 
 For **statement inputs** (e.g., `"DO"`, `"ELSE"`): Traverses the entire chain of blocks connected inside the statement, following `getNextBlock()` links.
 
@@ -166,6 +166,14 @@ For **statement inputs** (e.g., `"DO"`, `"ELSE"`): Traverses the entire chain of
   "outer_type": "controls_for",
   "inner_type": "math_number",
   "input_name": "FROM"
+}
+
+// A prompt block is attached to the VALUE input of a set-variable block
+{
+  "type": "block_nested",
+  "outer_type": "variables_set",
+  "inner_type": "text_prompt_ext",
+  "input_name": "VALUE"
 }
 ```
 

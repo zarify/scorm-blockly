@@ -2,15 +2,21 @@
  * Hints Tab — Hint condition builder.
  */
 
-import { getConfig, notifyChange, onConfigChange } from './builder-app.js';
+import { getConfig, notifyChange, onConfigChange, Blockly } from './builder-app.js';
+import {
+  createConditionSuggestionIds,
+  getConditionBlockDefinitionMetadata,
+  getSuggestedConditionBlockTypes,
+} from './condition-suggestions.js';
 
 let selectedHintIndex = -1;
+let lastConfigRef = null;
 
 const CONDITION_TYPES = [
   { value: 'block_exists', label: 'Block exists' },
   { value: 'block_missing', label: 'Block missing' },
   { value: 'block_connected', label: 'Blocks connected (sequential)' },
-  { value: 'block_nested', label: 'Block nested inside another' },
+  { value: 'block_nested', label: 'Block attached to another block input' },
   { value: 'block_field_value', label: 'Block field has value' },
   { value: 'block_count', label: 'Block count in range' },
   { value: 'workspace_empty', label: 'Workspace is empty' },
@@ -28,9 +34,19 @@ const TRIGGER_EVENTS = [
 
 export function initHintsTab() {
   document.getElementById('btn-add-hint').addEventListener('click', addHint);
+  lastConfigRef = getConfig();
   onConfigChange(() => {
+    const config = getConfig();
+    if (config === lastConfigRef) return;
+
+    const hints = config.hints || [];
+    if (selectedHintIndex >= hints.length) {
+      selectedHintIndex = hints.length - 1;
+    }
+
     renderHintList();
-    if (selectedHintIndex >= 0) renderHintEditor();
+    renderHintEditor();
+    lastConfigRef = config;
   });
   renderHintList();
 }
@@ -75,7 +91,7 @@ function renderHintList() {
 
   container.innerHTML = hints.map((hint, i) => `
     <div class="list-item ${i === selectedHintIndex ? 'selected' : ''}" data-index="${i}">
-      <span class="list-item-title">${escapeHtml(hint.message.substring(0, 50))}${hint.message.length > 50 ? '...' : ''}</span>
+      <span class="list-item-title">${escapeHtml(getHintListTitle(hint.message))}</span>
       <button class="list-item-remove" data-index="${i}" title="Remove hint">✕</button>
     </div>
   `).join('');
@@ -159,7 +175,10 @@ function renderHintEditor() {
 
   // Bind inputs
   bindField('hint-id', (v) => { hint.id = v; });
-  bindField('hint-message', (v) => { hint.message = v; renderHintList(); });
+  bindField('hint-message', (v) => {
+    hint.message = v;
+    updateHintListTitle(selectedHintIndex, v);
+  });
   bindField('hint-trigger-event', (v) => { hint.trigger.event = v; });
   bindField('hint-priority', (v) => { hint.priority = parseInt(v) || 1; });
   bindField('hint-delay', (v) => { hint.delay_seconds = parseInt(v) || 0; });
@@ -200,15 +219,22 @@ function renderConditionBuilder(container, condition, onChange) {
 }
 
 function renderConditionFields(container, condition, onChange) {
+  const datalistIds = createConditionSuggestionIds('hint-condition');
+  const blockTypeOptions = getSuggestedConditionBlockTypes(Blockly, getConfig())
+    .map((blockType) => `<option value="${escapeAttr(blockType)}"></option>`)
+    .join('');
+  const outerBlockMetadata = getConditionBlockDefinitionMetadata(Blockly, condition.outer_type);
+  const conditionBlockMetadata = getConditionBlockDefinitionMetadata(Blockly, condition.block_type);
   let html = '';
 
   switch (condition.type) {
     case 'block_exists':
     case 'block_missing':
       html = `
+        <datalist id="${datalistIds.blockTypes}">${blockTypeOptions}</datalist>
         <div class="condition-row">
           <label>Block type:</label>
-          <input type="text" class="cond-block-type" value="${escapeAttr(condition.block_type || '')}" placeholder="e.g. controls_repeat_ext">
+          <input type="text" class="cond-block-type" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.block_type || '')}" placeholder="e.g. controls_repeat_ext">
         </div>
         ${condition.type === 'block_exists' ? `
         <div class="condition-row">
@@ -220,56 +246,72 @@ function renderConditionFields(container, condition, onChange) {
 
     case 'block_connected':
       html = `
+        <datalist id="${datalistIds.blockTypes}">${blockTypeOptions}</datalist>
         <div class="condition-row">
           <label>Upper block:</label>
-          <input type="text" class="cond-upper-type" value="${escapeAttr(condition.upper_type || '')}" placeholder="e.g. controls_for">
+          <input type="text" class="cond-upper-type" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.upper_type || '')}" placeholder="e.g. controls_for">
         </div>
         <div class="condition-row">
           <label>Lower block:</label>
-          <input type="text" class="cond-lower-type" value="${escapeAttr(condition.lower_type || '')}" placeholder="e.g. text_print">
+          <input type="text" class="cond-lower-type" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.lower_type || '')}" placeholder="e.g. text_print">
         </div>
       `;
       break;
 
     case 'block_nested':
       html = `
+        <datalist id="${datalistIds.blockTypes}">${blockTypeOptions}</datalist>
+        <datalist id="${datalistIds.inputNames}">
+          ${outerBlockMetadata.inputNames.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}
+        </datalist>
         <div class="condition-row">
-          <label>Outer block:</label>
-          <input type="text" class="cond-outer-type" value="${escapeAttr(condition.outer_type || '')}" placeholder="e.g. controls_repeat_ext">
+          <label>Parent block:</label>
+          <input type="text" class="cond-outer-type" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.outer_type || '')}" placeholder="e.g. controls_repeat_ext">
         </div>
         <div class="condition-row">
-          <label>Inner block:</label>
-          <input type="text" class="cond-inner-type" value="${escapeAttr(condition.inner_type || '')}" placeholder="e.g. text_print">
+          <label>Attached block:</label>
+          <input type="text" class="cond-inner-type" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.inner_type || '')}" placeholder="e.g. text_print">
         </div>
         <div class="condition-row">
-          <label>Input name:</label>
-          <input type="text" class="cond-input-name" value="${escapeAttr(condition.input_name || '')}" placeholder="e.g. DO">
+          <label>Input / argument name:</label>
+          <input type="text" class="cond-input-name" list="${datalistIds.inputNames}" value="${escapeAttr(condition.input_name || '')}" placeholder="e.g. DO or VALUE">
         </div>
+        ${outerBlockMetadata.inputNames.length > 0
+          ? `<p style="font-size:12px;color:#666;margin:8px 0 0">Inputs on ${escapeHtml(condition.outer_type || 'this block')}: ${outerBlockMetadata.inputNames.join(', ')}. This works for statement inputs like DO and value inputs like VALUE or TEXT.</p>`
+          : ''}
       `;
       break;
 
     case 'block_field_value':
       html = `
+        <datalist id="${datalistIds.blockTypes}">${blockTypeOptions}</datalist>
+        <datalist id="${datalistIds.fieldNames}">
+          ${conditionBlockMetadata.fieldNames.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}
+        </datalist>
         <div class="condition-row">
           <label>Block type:</label>
-          <input type="text" class="cond-block-type" value="${escapeAttr(condition.block_type || '')}">
+          <input type="text" class="cond-block-type" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.block_type || '')}">
         </div>
         <div class="condition-row">
           <label>Field name:</label>
-          <input type="text" class="cond-field-name" value="${escapeAttr(condition.field_name || '')}">
+          <input type="text" class="cond-field-name" list="${datalistIds.fieldNames}" value="${escapeAttr(condition.field_name || '')}">
         </div>
         <div class="condition-row">
           <label>Expected value:</label>
           <input type="text" class="cond-expected" value="${escapeAttr(String(condition.expected_value || ''))}">
         </div>
+        ${conditionBlockMetadata.fieldNames.length > 0
+          ? `<p style="font-size:12px;color:#666;margin:8px 0 0">Fields on ${escapeHtml(condition.block_type || 'this block')}: ${conditionBlockMetadata.fieldNames.join(', ')}</p>`
+          : ''}
       `;
       break;
 
     case 'block_count':
       html = `
+        <datalist id="${datalistIds.blockTypes}">${blockTypeOptions}</datalist>
         <div class="condition-row">
           <label>Block type:</label>
-          <input type="text" class="cond-block-type" value="${escapeAttr(condition.block_type || '')}">
+          <input type="text" class="cond-block-type" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.block_type || '')}">
         </div>
         <div class="condition-row">
           <label>Min:</label>
@@ -337,21 +379,31 @@ function renderConditionFields(container, condition, onChange) {
 }
 
 function bindConditionInputs(container, condition, onChange) {
-  const bindInput = (selector, field, transform) => {
+  const bindInput = (selector, field, transform, options = {}) => {
     const el = container.querySelector(selector);
     if (el) {
-      el.addEventListener('input', (e) => {
+      const event = options.event || 'input';
+      el.addEventListener(event, (e) => {
         condition[field] = transform ? transform(e.target.value) : e.target.value;
         onChange(condition);
+        if (options.rerenderFields) {
+          renderConditionFields(container, condition, onChange);
+        }
       });
     }
   };
 
-  bindInput('.cond-block-type', 'block_type');
+  bindInput('.cond-block-type', 'block_type', undefined, {
+    event: condition.type === 'block_field_value' ? 'change' : 'input',
+    rerenderFields: condition.type === 'block_field_value',
+  });
   bindInput('.cond-min-count', 'min_count', (v) => parseInt(v) || 1);
   bindInput('.cond-upper-type', 'upper_type');
   bindInput('.cond-lower-type', 'lower_type');
-  bindInput('.cond-outer-type', 'outer_type');
+  bindInput('.cond-outer-type', 'outer_type', undefined, {
+    event: 'change',
+    rerenderFields: true,
+  });
   bindInput('.cond-inner-type', 'inner_type');
   bindInput('.cond-input-name', 'input_name');
   bindInput('.cond-field-name', 'field_name');
@@ -377,6 +429,17 @@ function bindCheckboxField(id, setter) {
     setter(e.target.checked);
     notifyChange();
   });
+}
+
+function getHintListTitle(message) {
+  const safeMessage = typeof message === 'string' ? message : String(message ?? '');
+  return `${safeMessage.substring(0, 50)}${safeMessage.length > 50 ? '...' : ''}`;
+}
+
+function updateHintListTitle(index, message) {
+  const title = document.querySelector(`.list-item[data-index="${index}"] .list-item-title`);
+  if (!title) return;
+  title.textContent = getHintListTitle(message);
 }
 
 function escapeHtml(str) {
