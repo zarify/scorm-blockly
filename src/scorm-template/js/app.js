@@ -13,6 +13,8 @@ let config = null;
 let attemptCount = 0;
 const PREVIEW_CONFIG_GLOBAL = '__BLOCKLY_SCORM_PREVIEW_CONFIG__';
 const PREVIEW_MODE_GLOBAL = '__BLOCKLY_SCORM_PREVIEW_MODE__';
+const OUTPUT_PLACEHOLDER_HTML =
+  '<p class="output-placeholder">Run your code to see console output, prompts, and automated checks here.</p>';
 
 async function init() {
   // 1. Initialize SCORM
@@ -49,18 +51,11 @@ async function init() {
   initHintEngine(config.hints || [], getWorkspace(), hintPanel);
 
   // 6. Attach event handlers
+  setupResultsModal();
   document.getElementById('btn-run').addEventListener('click', handleRun);
   document.getElementById('btn-reset').addEventListener('click', handleReset);
   configureHintRequestButton(config);
-
-  const codeToggle = document.getElementById('btn-code-toggle');
-  if (codeToggle) {
-    if (config.ui_settings?.show_code_toggle === false) {
-      codeToggle.style.display = 'none';
-    } else {
-      codeToggle.addEventListener('click', handleCodeToggle);
-    }
-  }
+  configureCodeToggleButton(config);
 
   // 7. Handle window resize
   window.addEventListener('resize', () => {
@@ -128,6 +123,19 @@ function configureHintRequestButton(cfg) {
   hintButton.onclick = hintPanelEnabled && hasHints ? handleHintRequest : null;
 }
 
+function configureCodeToggleButton(cfg) {
+  const codeToggle = document.getElementById('btn-code-toggle');
+  if (!codeToggle) return;
+
+  if (cfg.ui_settings?.show_code_toggle === false) {
+    codeToggle.style.display = 'none';
+    return;
+  }
+
+  updateCodeToggleButtonLabel(false);
+  codeToggle.addEventListener('click', handleCodeToggle);
+}
+
 async function handleRun() {
   const runBtn = document.getElementById('btn-run');
   runBtn.disabled = true;
@@ -145,6 +153,7 @@ async function handleRun() {
 
     attemptCount++;
     renderRunOutput(execution, results, totalScore, maxScore);
+    openResultsModal();
 
     // Report score to SCORM
     const normalizedScore = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
@@ -171,8 +180,8 @@ function handleReset() {
   if (config.blockly_setup.starting_blocks) {
     Blockly.serialization.workspaces.load(config.blockly_setup.starting_blocks, workspace);
   }
-  document.getElementById('output-panel').innerHTML =
-    '<p class="output-placeholder">Run your code to see console output, prompts, and automated checks here.</p>';
+  setOutputPlaceholder();
+  closeResultsModal();
   showStatus('Workspace reset to starting state.', 'info');
 }
 
@@ -184,16 +193,23 @@ function handleCodeToggle() {
   const codePanel = document.getElementById('code-panel');
   if (!codePanel) return;
 
-  if (codePanel.style.display === 'none') {
-    try {
-      const code = generateCode();
-      codePanel.querySelector('code').textContent = code;
-      codePanel.style.display = 'block';
-    } catch {
-      showStatus('Add some blocks first to see the code.', 'info');
+  const shouldShowCode = !isCodePanelVisible();
+
+  if (!shouldShowCode) {
+    setCodePanelVisible(false);
+    if (!hasRunOutput()) {
+      closeResultsModal();
     }
-  } else {
-    codePanel.style.display = 'none';
+    return;
+  }
+
+  try {
+    const code = generateCode();
+    codePanel.querySelector('code').textContent = code;
+    setCodePanelVisible(true);
+    openResultsModal();
+  } catch {
+    showStatus('Add some blocks first to see the code.', 'info');
   }
 }
 
@@ -249,6 +265,67 @@ function renderRunOutput(execution, results, totalScore, maxScore) {
   }
 
   panel.innerHTML = html;
+}
+
+function setupResultsModal() {
+  document.getElementById('btn-close-results-modal')?.addEventListener('click', () => {
+    closeResultsModal();
+  });
+  document.getElementById('results-modal-backdrop')?.addEventListener('click', () => {
+    closeResultsModal();
+  });
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeResultsModal();
+    }
+  });
+  setOutputPlaceholder();
+}
+
+function openResultsModal() {
+  const modal = document.getElementById('results-modal');
+  if (!modal) return;
+
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
+}
+
+function closeResultsModal() {
+  const modal = document.getElementById('results-modal');
+  if (!modal) return;
+
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('modal-open');
+  setCodePanelVisible(false);
+}
+
+function setOutputPlaceholder() {
+  const outputPanel = document.getElementById('output-panel');
+  if (!outputPanel) return;
+  outputPanel.innerHTML = OUTPUT_PLACEHOLDER_HTML;
+}
+
+function hasRunOutput() {
+  return !document.getElementById('output-panel')?.querySelector('.output-placeholder');
+}
+
+function isCodePanelVisible() {
+  return document.getElementById('code-panel')?.style.display !== 'none';
+}
+
+function setCodePanelVisible(visible) {
+  const codePanel = document.getElementById('code-panel');
+  if (!codePanel) return;
+  codePanel.style.display = visible ? 'block' : 'none';
+  updateCodeToggleButtonLabel(visible);
+}
+
+function updateCodeToggleButtonLabel(visible) {
+  const codeToggle = document.getElementById('btn-code-toggle');
+  if (!codeToggle) return;
+  codeToggle.textContent = visible ? '{ } Hide Code' : '{ } Show Code';
 }
 
 function showStatus(message, type) {

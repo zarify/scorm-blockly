@@ -45,7 +45,7 @@ function createDefaultConfig() {
     },
     ui_settings: {
       theme: 'default',
-      show_code_toggle: true,
+      show_code_toggle: false,
       show_hint_panel: true,
       max_attempts: null,
     },

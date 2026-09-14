@@ -1,3 +1,5 @@
+import * as Blockly from 'blockly';
+
 /**
  * Workspace Inspector — Evaluates structural conditions on a Blockly workspace.
  *
@@ -81,27 +83,57 @@ function evalBlockConnected(workspace, condition) {
 
 function evalBlockNested(workspace, condition) {
   const outerBlocks = getBlocksByType(workspace, condition.outer_type);
+  const descendantFieldName = condition.field_name ? String(condition.field_name) : '';
+  const descendantMatcher = descendantFieldName
+    ? createFieldValueMatcher(
+        condition.match_mode || 'exact',
+        String(condition.expected_value ?? ''),
+        condition.regex_flags || '',
+      )
+    : null;
+
+  if (descendantMatcher && !descendantMatcher.valid) {
+    return {
+      passed: false,
+      detail: descendantMatcher.detail,
+    };
+  }
+
   for (const outer of outerBlocks) {
     const input = outer.getInput(condition.input_name);
     if (!input) continue;
     const connected = input.connection && input.connection.targetBlock();
-    if (connected) {
-      // Check the connected block and all blocks nested inside the statement
-      const nestedBlocks = [connected];
-      if (input.type === Blockly.inputTypes.STATEMENT) {
-        let current = connected;
-        while (current) {
-          nestedBlocks.push(current);
-          current = current.getNextBlock();
-        }
-      }
-      if (nestedBlocks.some((b) => b.type === condition.inner_type)) {
-        return {
-          passed: true,
-          detail: `${condition.inner_type} is nested inside ${condition.outer_type}.${condition.input_name}`,
-        };
-      }
+    if (!connected) continue;
+
+    const matchingDescendants = collectNestedBlocks(connected).filter(
+      (block) => block.type === condition.inner_type,
+    );
+    if (matchingDescendants.length === 0) continue;
+
+    if (!descendantMatcher) {
+      return {
+        passed: true,
+        detail: `${condition.inner_type} is nested inside ${condition.outer_type}.${condition.input_name}`,
+      };
     }
+
+    const matchingBlock = matchingDescendants.find((block) => {
+      const value = block.getFieldValue?.(descendantFieldName);
+      return value !== null && value !== undefined && descendantMatcher.matches(String(value));
+    });
+    if (matchingBlock) {
+      return {
+        passed: true,
+        detail: `${condition.inner_type}.${descendantFieldName} ${descendantMatcher.description} inside ${condition.outer_type}.${condition.input_name}`,
+      };
+    }
+  }
+
+  if (descendantMatcher) {
+    return {
+      passed: false,
+      detail: `No ${condition.inner_type}.${descendantFieldName} ${descendantMatcher.description} inside ${condition.outer_type}.${condition.input_name}`,
+    };
   }
   return {
     passed: false,
@@ -109,20 +141,60 @@ function evalBlockNested(workspace, condition) {
   };
 }
 
+function collectNestedBlocks(rootBlock) {
+  const visited = new Set();
+  const collected = [];
+  const queue = [rootBlock];
+
+  while (queue.length > 0) {
+    const block = queue.shift();
+    if (!block || visited.has(block.id)) continue;
+
+    visited.add(block.id);
+    collected.push(block);
+
+    const next = block.getNextBlock?.();
+    if (next) {
+      queue.push(next);
+    }
+
+    for (const input of block.inputList || []) {
+      const nested = input.connection?.targetBlock?.();
+      if (nested) {
+        queue.push(nested);
+      }
+    }
+  }
+
+  return collected;
+}
+
 function evalBlockFieldValue(workspace, condition) {
   const blocks = getBlocksByType(workspace, condition.block_type);
+  const matchMode = condition.match_mode || 'exact';
+  const regexFlags = condition.regex_flags || '';
+  const expectedValue = String(condition.expected_value ?? '');
+  const matcher = createFieldValueMatcher(matchMode, expectedValue, regexFlags);
+
+  if (!matcher.valid) {
+    return {
+      passed: false,
+      detail: matcher.detail,
+    };
+  }
+
   for (const block of blocks) {
     const value = block.getFieldValue(condition.field_name);
-    if (value !== null && String(value) === String(condition.expected_value)) {
+    if (value !== null && matcher.matches(String(value))) {
       return {
         passed: true,
-        detail: `${condition.block_type}.${condition.field_name} = "${condition.expected_value}"`,
+        detail: `${condition.block_type}.${condition.field_name} ${matcher.description}`,
       };
     }
   }
   return {
     passed: false,
-    detail: `No ${condition.block_type} block has ${condition.field_name} = "${condition.expected_value}"`,
+    detail: `No ${condition.block_type} block has ${condition.field_name} ${matcher.description}`,
   };
 }
 
@@ -170,5 +242,29 @@ function evalNone(workspace, condition) {
   return {
     passed,
     detail: `NONE: ${results.filter((r) => !r.passed).length}/${results.length} failed (good)`,
+  };
+}
+
+function createFieldValueMatcher(matchMode, expectedValue, regexFlags) {
+  if (matchMode === 'regex') {
+    try {
+      const regex = new RegExp(`^(?:${expectedValue})$`, regexFlags);
+      return {
+        valid: true,
+        matches: (actualValue) => regex.test(actualValue),
+        description: `matches /${expectedValue}/${regexFlags}`,
+      };
+    } catch (err) {
+      return {
+        valid: false,
+        detail: `Invalid regex /${expectedValue}/${regexFlags}: ${err.message}`,
+      };
+    }
+  }
+
+  return {
+    valid: true,
+    matches: (actualValue) => actualValue === expectedValue,
+    description: `= "${expectedValue}"`,
   };
 }

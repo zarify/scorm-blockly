@@ -55,7 +55,7 @@
         },
         "show_code_toggle": {
           "type": "boolean",
-          "default": true,
+          "default": false,
           "description": "Allow students to see generated JavaScript"
         },
         "show_hint_panel": {
@@ -191,7 +191,15 @@
             "type": { "const": "block_nested" },
             "outer_type": { "type": "string" },
             "inner_type": { "type": "string" },
-            "input_name": { "type": "string" }
+            "input_name": { "type": "string" },
+            "field_name": { "type": "string" },
+            "expected_value": {},
+            "match_mode": {
+              "type": "string",
+              "enum": ["exact", "regex"],
+              "default": "exact"
+            },
+            "regex_flags": { "type": "string", "default": "" }
           },
           "required": ["type", "outer_type", "inner_type", "input_name"]
         },
@@ -200,7 +208,13 @@
             "type": { "const": "block_field_value" },
             "block_type": { "type": "string" },
             "field_name": { "type": "string" },
-            "expected_value": {}
+            "expected_value": {},
+            "match_mode": {
+              "type": "string",
+              "enum": ["exact", "regex"],
+              "default": "exact"
+            },
+            "regex_flags": { "type": "string", "default": "" }
           },
           "required": ["type", "block_type", "field_name", "expected_value"]
         },

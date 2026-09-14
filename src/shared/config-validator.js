@@ -3,6 +3,7 @@ import { getTestPoints } from './test-config.js';
 export const VALID_TEST_TYPES = ['stdout_match', 'block_structure', 'variable_state'];
 export const VALID_STDOUT_MATCH_MODES = ['exact', 'contains', 'regex'];
 export const VALID_VARIABLE_COMPARISONS = ['equals', 'gt', 'lt', 'gte', 'lte', 'contains', 'type'];
+export const VALID_FIELD_VALUE_MATCH_MODES = ['exact', 'regex'];
 export const VALID_CONDITION_TYPES = [
   'block_exists', 'block_missing', 'block_connected', 'block_nested',
   'block_field_value', 'block_count', 'workspace_empty', 'all', 'any', 'none',
@@ -270,9 +271,77 @@ function validateCondition(condition, path, errors) {
     validateRequiredString(condition, 'outer_type', errors, path);
     validateRequiredString(condition, 'inner_type', errors, path);
     validateRequiredString(condition, 'input_name', errors, path);
+    const hasScopedValueConstraint = hasNestedScopedValueConstraint(condition);
+    if (condition.field_name !== undefined && typeof condition.field_name !== 'string') {
+      errors.push({ path: `${path}.field_name`, message: 'Must be a string' });
+    }
+    if (
+      condition.match_mode !== undefined
+      && !VALID_FIELD_VALUE_MATCH_MODES.includes(condition.match_mode)
+    ) {
+      errors.push({
+        path: `${path}.match_mode`,
+        message: `Must be one of: ${VALID_FIELD_VALUE_MATCH_MODES.join(', ')}`,
+      });
+    }
+    if (condition.regex_flags !== undefined) {
+      if (typeof condition.regex_flags !== 'string') {
+        errors.push({ path: `${path}.regex_flags`, message: 'Must be a string' });
+      } else if (!isValidRegexFlags(condition.regex_flags)) {
+        errors.push({
+          path: `${path}.regex_flags`,
+          message: 'Must use valid JavaScript regex flags without duplicates',
+        });
+      }
+    }
+    if (hasScopedValueConstraint && String(condition.field_name ?? '').trim() === '') {
+      errors.push({
+        path: `${path}.field_name`,
+        message: 'Field name is required when adding a descendant value constraint',
+      });
+    }
+    if (hasScopedValueConstraint && condition.match_mode === 'regex') {
+      try {
+        new RegExp(`^(?:${String(condition.expected_value ?? '')})$`, condition.regex_flags || '');
+      } catch (err) {
+        errors.push({
+          path: `${path}.expected_value`,
+          message: `Invalid regex pattern: ${err.message}`,
+        });
+      }
+    }
   } else if (condition.type === 'block_field_value') {
     validateRequiredString(condition, 'block_type', errors, path);
     validateRequiredString(condition, 'field_name', errors, path);
+    if (
+      condition.match_mode !== undefined
+      && !VALID_FIELD_VALUE_MATCH_MODES.includes(condition.match_mode)
+    ) {
+      errors.push({
+        path: `${path}.match_mode`,
+        message: `Must be one of: ${VALID_FIELD_VALUE_MATCH_MODES.join(', ')}`,
+      });
+    }
+    if (condition.regex_flags !== undefined) {
+      if (typeof condition.regex_flags !== 'string') {
+        errors.push({ path: `${path}.regex_flags`, message: 'Must be a string' });
+      } else if (!isValidRegexFlags(condition.regex_flags)) {
+        errors.push({
+          path: `${path}.regex_flags`,
+          message: 'Must use valid JavaScript regex flags without duplicates',
+        });
+      }
+    }
+    if ((condition.match_mode || 'exact') === 'regex') {
+      try {
+        new RegExp(`^(?:${String(condition.expected_value ?? '')})$`, condition.regex_flags || '');
+      } catch (err) {
+        errors.push({
+          path: `${path}.expected_value`,
+          message: `Invalid regex pattern: ${err.message}`,
+        });
+      }
+    }
   } else if (condition.type === 'block_count') {
     validateRequiredString(condition, 'block_type', errors, path);
   } else if (['all', 'any', 'none'].includes(condition.type)) {
@@ -299,5 +368,23 @@ function validateHint(hint, index, errors) {
     if (hint.trigger.conditions) {
       validateCondition(hint.trigger.conditions, `${prefix}.trigger.conditions`, errors);
     }
+  }
+
+  function isValidRegexFlags(flags) {
+    try {
+      new RegExp('', flags);
+      return new Set(flags.split('')).size === flags.length;
+    } catch {
+      return false;
+    }
+  }
+
+  function hasNestedScopedValueConstraint(condition) {
+    return (
+      String(condition.field_name ?? '').trim() !== ''
+      || condition.expected_value !== undefined
+      || condition.match_mode === 'regex'
+      || String(condition.regex_flags ?? '') !== ''
+    );
   }
 }

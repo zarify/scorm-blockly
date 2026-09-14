@@ -134,9 +134,9 @@ Common differences between local preview and Moodle:
 
 1. **Check `show_hint_panel`** — Must be `true` (or omitted, defaults to true) in `ui_settings`
 2. **Check trigger event** — Make sure the event matches what the student is doing:
-   - `workspace_change` only fires when blocks are moved/added/deleted
+   - `workspace_change` fires after meaningful Blockly edits such as moving, adding, deleting, or changing block fields
    - `test_fail` only fires after clicking "Run Code" and failing
-3. **Check delay** — If `delay_seconds` is set, wait that long after the condition becomes true
+3. **Check delay** — If `delay_seconds` is set, wait that long after the condition becomes true; the hint should now appear automatically once the delay elapses
 4. **Check condition** — The condition must evaluate to true. Test with simple conditions first (e.g., `workspace_empty`)
 5. **Check `show_once`** — If true and already dismissed, the hint won't reappear
 
@@ -163,6 +163,7 @@ Common issues with the `input_name` parameter:
 | `controls_if` | `IF0`, `DO0`, `ELSE` | Using `"IF"` instead of `"IF0"` |
 | `controls_repeat_ext` | `TIMES`, `DO` | Using `"BODY"` instead of `"DO"` |
 | `text_print` | `TEXT` | Using `"VALUE"` instead of `"TEXT"` |
+| `variables_set` | `VALUE` | Using `"TEXT"` instead of `"VALUE"` |
 
 To find the correct input name, check the [Blockly block definitions](https://github.com/google/blockly/tree/master/blocks) or inspect a block in the browser console:
 
@@ -173,9 +174,13 @@ console.log(block.inputList.map(i => i.name));
 // → ["FROM", "TO", "BY", "DO"]
 ```
 
+`block_nested` now searches the full subtree hanging off that input. For example, `variables_set.VALUE` can match either the directly attached `text_prompt_ext` block or the nested `text` block inside that prompt.
+
+If you also fill in the optional descendant field/value controls, that value match is scoped to the matching descendants found in that subtree rather than unrelated blocks elsewhere in the workspace.
+
 ### `block_field_value` not matching
 
-Remember that comparison is **string-based**. Common pitfalls:
+Remember that comparison is **string-based** in exact mode, or a **full regex match** in regex mode. Common pitfalls:
 
 ```json
 // ❌ This won't match — field value is string "3", comparing to number 3
@@ -185,11 +190,27 @@ Remember that comparison is **string-based**. Common pitfalls:
 { "expected_value": "3" }
 ```
 
-Both sides are converted to strings via `String()`, so `3` and `"3"` should actually match. But if you're seeing mismatches, check:
+Both sides are converted to strings via `String()` in exact mode, so `3` and `"3"` should actually match. But if you're seeing mismatches, check:
 
 1. The exact field name (case-sensitive)
 2. The exact value (including whitespace)
 3. That the block type is correct
+4. Whether regex mode is enabled when you meant to use an exact value
+5. Whether your regex needs flags like `i` for case-insensitive matching
+
+Regex mode uses a full match, not a substring search. For example:
+
+```json
+{ "expected_value": "Who.*\\?", "match_mode": "regex", "regex_flags": "i" }
+```
+
+matches `"Who's there?"`, but:
+
+```json
+{ "expected_value": "there", "match_mode": "regex" }
+```
+
+does **not**, because it is treated like `^(?:there)$`.
 
 ### Regex match not working in stdout_match
 

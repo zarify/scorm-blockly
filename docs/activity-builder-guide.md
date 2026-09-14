@@ -52,7 +52,7 @@ Set the activity metadata, student instructions, and UI settings.
 
 | Setting | Default | Description |
 |---------|---------|-------------|
-| **Show code toggle** | ✅ On | Let students see the generated JavaScript code |
+| **Show code toggle** | Off | Let students open the generated JavaScript code modal |
 | **Show hint panel** | ✅ On | Display the hints panel in the student UI |
 | **Max attempts** | Unlimited | ⚠️ Not yet enforced at runtime. The field is in the schema for future use |
 
@@ -149,6 +149,8 @@ Create contextual hints that appear as students work. See [Hint System](hint-sys
    - **timed** — After a time delay (⚠️ not yet implemented at runtime)
 3. Write the **message** shown to the student
 4. If using `workspace_change`, build a **condition** (see [Condition Reference](condition-reference.md))
+   - For nested structures, **Outer block input name** refers to the parent block input where the whole subtree is plugged in
+   - You can optionally add a **matched descendant field/value** constraint to keep the value check scoped to that nested subtree
 5. Set optional timing:
    - **Priority** — Higher priority hints suppress lower ones
    - **Delay** — Seconds before the hint appears after condition is met
@@ -166,6 +168,7 @@ A good hint sequence escalates from vague to specific:
 | 3rd | 3 | 4 | "Connect a for-loop with i from 1 to 3, then put a print block inside" |
 
 Use `delay_seconds` on early hints to avoid showing them before the student has had a chance to try.
+Workspace-change hints are evaluated automatically after Blockly edits, and delayed hints now appear once the delay elapses even if the student stops dragging blocks.
 
 ---
 
@@ -227,6 +230,7 @@ Click **Reload Preview** to restart the student runtime with your latest config.
 > **Note**: The preview uses the same client-side runtime as the exported package, but it still runs without an LMS connection. SCORM score reporting is simulated locally.
 
 When you click **▶ Run Code**, the activity first executes the learner program normally, then runs the configured automated checks. If the program uses input blocks, the preview uses real browser prompt dialogs for the live run, while tests still use each test case's configured `prompt_inputs`.
+Run results open in a modal so the Blockly workspace keeps the full horizontal space until needed.
 
 ---
 

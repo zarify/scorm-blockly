@@ -7,7 +7,7 @@ The hint system provides real-time, context-sensitive guidance to students as th
 1. The **hint engine** monitors the Blockly workspace for changes (debounced every 2 seconds)
 2. When an event occurs, each hint's **trigger conditions** are evaluated
 3. Hints that pass all checks become **visible** in the hint panel
-4. Students can **dismiss** hints (and `show_once` hints won't return)
+4. Students can **dismiss** hints; `show_once` hints won't return, while other hints stay hidden until the triggering situation changes or the event happens again
 5. Hints are sorted by **priority** — higher priority hints appear first
 
 ## Hint Configuration
@@ -60,6 +60,8 @@ Each hint is an object in the `hints` array:
 The most common trigger. Fires when the student adds, removes, moves, or modifies blocks.
 
 **Debouncing:** Evaluations are debounced by 2 seconds — the hint engine waits 2 seconds after the last workspace change before evaluating. This prevents constant flickering as students drag blocks.
+
+**Automatic delayed hints:** If a `workspace_change` hint has `delay_seconds`, the timer starts as soon as the condition becomes true and the hint now appears automatically once that delay elapses, even if the student pauses and makes no further edits.
 
 **Conditions are required** for this trigger type — without a condition, the hint would appear on every change.
 

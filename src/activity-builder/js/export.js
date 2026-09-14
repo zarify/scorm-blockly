@@ -193,11 +193,20 @@ function generateIndexHtml(config) {
           <button id="btn-code-toggle" class="btn btn-secondary">{ } Show Code</button>
         </div>
       </main>
-      <aside id="right-panel">
+    </div>
+  </div>
+  <div id="results-modal" class="results-modal hidden" aria-hidden="true">
+    <button id="results-modal-backdrop" class="results-modal-backdrop" type="button" aria-label="Close results"></button>
+    <section class="results-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="results-modal-title">
+      <header class="results-modal-header">
+        <h2 id="results-modal-title">Run details</h2>
+        <button id="btn-close-results-modal" class="btn btn-secondary results-modal-close" type="button" aria-label="Close results">✕</button>
+      </header>
+      <div class="results-modal-body">
         <div id="output-panel" class="panel"><p class="output-placeholder">Run your code to see console output, prompts, and automated checks here.</p></div>
         <div id="code-panel" class="panel" style="display:none"><h3>Generated Code</h3><pre><code></code></pre></div>
-      </aside>
-    </div>
+      </div>
+    </section>
   </div>
   <script src="js/app.bundle.js"></script>
 </body>
