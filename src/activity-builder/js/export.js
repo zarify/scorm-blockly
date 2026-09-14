@@ -6,6 +6,8 @@ import JSZip from 'jszip';
 import { normalizeBuilderDraftConfig } from '../../shared/config-normalizer.js';
 import { validateBuilderDraftConfig } from '../../shared/config-validator.js';
 
+const BUILDER_RUNTIME_ASSETS_GLOBAL = '__SCORM_BUILDER_ASSETS__';
+
 /**
  * Export the config as a JSON file download.
  * @param {object} config
@@ -22,6 +24,7 @@ export function exportJSON(config) {
  * @param {object} config
  */
 export async function exportSCORM(config) {
+  const runtimeAssets = await loadScormRuntimeAssets();
   const zip = new JSZip();
 
   // Add the config
@@ -34,11 +37,10 @@ export async function exportSCORM(config) {
   zip.file('index.html', generateIndexHtml(config));
 
   // Add the CSS
-  zip.file('css/style.css', getScormCSS());
+  zip.file('css/style.css', runtimeAssets.styleCss);
 
-  // The bundled JS would come from the build output.
-  // For now, add a placeholder that users replace with the built bundle.
-  zip.file('js/app.bundle.js', getScormBundlePlaceholder());
+  // Add the real student runtime bundle.
+  zip.file('js/app.bundle.js', runtimeAssets.appBundleJs);
 
   const content = await zip.generateAsync({
     type: 'blob',
@@ -47,6 +49,51 @@ export async function exportSCORM(config) {
   });
 
   downloadBlob(content, `${config.metadata?.activity_id || 'blockly-scorm'}.zip`);
+}
+
+async function loadScormRuntimeAssets() {
+  const embeddedAssets = globalThis[BUILDER_RUNTIME_ASSETS_GLOBAL];
+  if (hasRuntimeAssets(embeddedAssets)) {
+    return embeddedAssets;
+  }
+
+  const fetchedAssets = await fetchRuntimeAssets();
+  if (hasRuntimeAssets(fetchedAssets)) {
+    return fetchedAssets;
+  }
+
+  throw new Error(
+    'SCORM runtime assets are unavailable. Rebuild the activity builder or run it with "npm run dev", then try exporting again.',
+  );
+}
+
+async function fetchRuntimeAssets() {
+  try {
+    const [appBundleResp, styleResp] = await Promise.all([
+      fetch(new URL('preview/app.bundle.js', window.location.href)),
+      fetch(new URL('preview/style.css', window.location.href)),
+    ]);
+
+    if (!appBundleResp.ok || !styleResp.ok) {
+      return null;
+    }
+
+    const [appBundleJs, styleCss] = await Promise.all([appBundleResp.text(), styleResp.text()]);
+    return { appBundleJs, styleCss };
+  } catch {
+    return null;
+  }
+}
+
+function hasRuntimeAssets(value) {
+  return Boolean(
+    value
+      && typeof value === 'object'
+      && typeof value.appBundleJs === 'string'
+      && value.appBundleJs.length > 0
+      && typeof value.styleCss === 'string'
+      && value.styleCss.length > 0,
+  );
 }
 
 /**
@@ -155,67 +202,6 @@ function generateIndexHtml(config) {
   <script src="js/app.bundle.js"></script>
 </body>
 </html>`;
-}
-
-function getScormCSS() {
-  // Returns the student-facing CSS inline (same as src/scorm-template/css/style.css)
-  return `/* Blockly SCORM Activity */
-* { margin: 0; padding: 0; box-sizing: border-box; }
-body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #f5f5f5; color: #333; height: 100vh; overflow: hidden; }
-#app { display: flex; flex-direction: column; height: 100vh; }
-.status-bar { padding: 8px 16px; font-size: 14px; text-align: center; flex-shrink: 0; }
-.status-info { background: #e3f2fd; color: #1565c0; }
-.status-error { background: #ffebee; color: #c62828; }
-#main-layout { display: grid; grid-template-columns: 280px 1fr 320px; gap: 0; flex: 1; overflow: hidden; }
-.panel { background: #fff; padding: 16px; overflow-y: auto; }
-#left-panel { display: flex; flex-direction: column; border-right: 1px solid #ddd; overflow-y: auto; }
-#instructions-panel { flex: 1; }
-#instructions-panel h2 { font-size: 18px; margin-bottom: 12px; }
-.instruction-main { font-size: 15px; line-height: 1.6; margin-bottom: 12px; }
-.instruction-steps { padding-left: 20px; font-size: 14px; line-height: 1.8; }
-.hint-panel { border-top: 1px solid #ddd; max-height: 200px; }
-.hint-panel h3 { font-size: 15px; margin-bottom: 8px; }
-.hint-empty { font-size: 13px; color: #999; font-style: italic; }
-.hint-card { background: #fff8e1; border: 1px solid #ffecb3; border-radius: 6px; padding: 10px 12px; margin-bottom: 8px; position: relative; font-size: 14px; }
-.hint-dismiss { position: absolute; top: 6px; right: 8px; background: none; border: none; font-size: 14px; cursor: pointer; color: #999; }
-#workspace-area { display: flex; flex-direction: column; overflow: hidden; }
-#blockly-workspace { flex: 1; min-height: 0; }
-#controls { display: flex; gap: 8px; flex-wrap: wrap; padding: 10px 16px; background: #fff; border-top: 1px solid #ddd; flex-shrink: 0; }
-#btn-request-hint { display: none; }
-.btn { padding: 8px 20px; border: none; border-radius: 6px; font-size: 14px; font-weight: 600; cursor: pointer; }
-.btn:disabled { opacity: 0.6; cursor: not-allowed; }
-.btn-primary { background: #1976d2; color: #fff; }
-.btn-primary:hover:not(:disabled) { background: #1565c0; }
-.btn-secondary { background: #e0e0e0; color: #333; }
-#right-panel { display: flex; flex-direction: column; border-left: 1px solid #ddd; overflow-y: auto; }
-#output-panel { flex: 1; }
-.output-placeholder { color: #999; font-style: italic; font-size: 14px; }
-.output-section, .results-section { margin-bottom: 16px; }
-.output-section h3, .prompt-log h4, #code-panel h3 { font-size: 14px; margin-bottom: 8px; }
-.output-console { background: #263238; color: #eeffff; padding: 12px; border-radius: 6px; font-size: 12px; line-height: 1.5; overflow-x: auto; white-space: pre-wrap; word-break: break-word; margin-bottom: 12px; }
-.output-empty { color: #666; font-size: 14px; margin-bottom: 12px; }
-.prompt-log { background: #f8f9fb; border: 1px solid #e3e7ee; border-radius: 6px; padding: 12px; margin-bottom: 12px; }
-.prompt-list { list-style: none; padding: 0; }
-.prompt-item { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 13px; line-height: 1.5; margin-bottom: 6px; }
-.prompt-item:last-child { margin-bottom: 0; }
-.prompt-arrow { color: #666; }
-.prompt-item code { background: #eef2f7; border-radius: 4px; padding: 1px 6px; }
-.run-error { background: #ffebee; color: #b71c1c; border-radius: 6px; padding: 10px 12px; font-size: 14px; }
-.results-header { padding: 10px 12px; border-radius: 6px; margin-bottom: 12px; font-size: 15px; }
-.results-pass { background: #e8f5e9; color: #2e7d32; }
-.results-fail { background: #ffebee; color: #c62828; }
-.results-list { list-style: none; }
-.results-list li { padding: 8px 0; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
-.result-pass .result-icon { color: #2e7d32; }
-.result-fail .result-icon { color: #c62828; }
-#code-panel { border-top: 1px solid #ddd; max-height: 300px; overflow-y: auto; }
-#code-panel pre { background: #263238; color: #eeffff; padding: 12px; border-radius: 6px; font-size: 12px; overflow-x: auto; }
-@media (max-width: 900px) { #main-layout { grid-template-columns: 1fr; } }`;
-}
-
-function getScormBundlePlaceholder() {
-  return `// This is a placeholder. Replace with the built app.bundle.js from: npm run build:scorm
-console.error("[SCORM] app.bundle.js is a placeholder. Run 'npm run build:scorm' and copy dist/scorm-template/js/app.bundle.js here.");`;
 }
 
 function escapeHtml(str) {

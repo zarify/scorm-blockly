@@ -26,6 +26,22 @@ async function bundleScormApp(outfile) {
   });
 }
 
+function copyBuilderStaticAssets(outDir) {
+  copyIfExists(resolve(SRC, 'activity-builder/index.html'), resolve(outDir, 'index.html'));
+  copyIfExists(resolve(SRC, 'activity-builder/css'), resolve(outDir, 'css'));
+}
+
+function copyPreviewStyle(outDir) {
+  copyIfExists(resolve(SRC, 'scorm-template/css/style.css'), resolve(outDir, 'preview/style.css'));
+}
+
+function writeBuilderRuntimeAssets(outDir) {
+  const appBundleJs = readFileSync(resolve(outDir, 'preview/app.bundle.js'), 'utf8');
+  const styleCss = readFileSync(resolve(outDir, 'preview/style.css'), 'utf8');
+  const script = `globalThis.__SCORM_BUILDER_ASSETS__ = ${JSON.stringify({ appBundleJs, styleCss })};\n`;
+  writeFileSync(resolve(outDir, 'runtime-assets.js'), script);
+}
+
 async function buildScorm() {
   const outDir = resolve(DIST, 'scorm-template');
   mkdirSync(outDir, { recursive: true });
@@ -46,6 +62,7 @@ async function buildScorm() {
 async function buildBuilder() {
   const outDir = resolve(DIST, 'activity-builder');
   mkdirSync(outDir, { recursive: true });
+  mkdirSync(resolve(outDir, 'preview'), { recursive: true });
 
   // Bundle all builder JS (including shared modules and Blockly)
   await esbuild.build({
@@ -63,11 +80,10 @@ async function buildBuilder() {
   });
 
   // Copy static assets
-  copyIfExists(resolve(SRC, 'activity-builder/index.html'), resolve(outDir, 'index.html'));
-  copyIfExists(resolve(SRC, 'activity-builder/css'), resolve(outDir, 'css'));
-  mkdirSync(resolve(outDir, 'preview'), { recursive: true });
+  copyBuilderStaticAssets(outDir);
   await bundleScormApp(resolve(outDir, 'preview/app.bundle.js'));
-  copyIfExists(resolve(SRC, 'scorm-template/css/style.css'), resolve(outDir, 'preview/style.css'));
+  copyPreviewStyle(outDir);
+  writeBuilderRuntimeAssets(outDir);
 
   console.log('✅ Activity builder built → dist/activity-builder/');
 }

@@ -70,13 +70,15 @@ The error toast shows the specific validation error.
 
 ### Export SCORM produces a non-functional package
 
-The builder's SCORM export includes a placeholder `app.bundle.js`. For functional packages, use the command-line workflow:
+If the exported package is non-functional, first rebuild the builder/runtime assets and export again:
 
 ```bash
-cp your-config.json src/scorm-template/config/activity_config.json
 npm run build
-npm run export
+# or, during authoring:
+npm run dev
 ```
+
+Then reopen the builder and export a fresh package. The builder export now includes the real `app.bundle.js`.
 
 ---
 
@@ -93,10 +95,7 @@ npm run export
    config/activity_config.json
    ```
 
-2. **Check the bundle** — If `js/app.bundle.js` is a placeholder (< 1KB), rebuild:
-   ```bash
-   npm run build && npm run export
-   ```
+2. **Check the bundle** — `js/app.bundle.js` should be a full bundled runtime, not a tiny placeholder file. If it looks suspiciously small, rebuild and export again.
 
 3. **Check browser console** — In Moodle, open the SCORM activity, then press F12 to check for JavaScript errors.
 
