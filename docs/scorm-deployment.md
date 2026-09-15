@@ -24,7 +24,7 @@ This produces a fully functional SCORM 1.2 package with the Blockly runtime bund
 2. Click **📦 Export SCORM**
 3. Download the `.zip` file
 
-> **Note:** The builder's SCORM export includes a placeholder JavaScript bundle. For production use, the command-line method is recommended.
+This produces a functional SCORM package with the bundled student runtime included. The command-line method is still useful when you want a repeatable repo-based build artifact.
 
 ---
 

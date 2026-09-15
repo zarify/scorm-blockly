@@ -6,24 +6,32 @@
 
 import * as scorm from './scorm-wrapper.js';
 import { initWorkspace, generateCode, getWorkspace, Blockly } from './blockly-engine.js';
-import { runTests } from './test-runner.js';
+import { executeInteractiveRun, runTests } from './test-runner.js';
 import { initHintEngine, onTestFail, requestHint, dismissHint, setBlocklyRef } from './hint-engine.js';
 
 let config = null;
 let attemptCount = 0;
+const PREVIEW_CONFIG_GLOBAL = '__BLOCKLY_SCORM_PREVIEW_CONFIG__';
+const PREVIEW_MODE_GLOBAL = '__BLOCKLY_SCORM_PREVIEW_MODE__';
+const OUTPUT_PLACEHOLDER_HTML =
+  '<p class="output-placeholder">Run your code to see console output, prompts, and automated checks here.</p>';
 
 async function init() {
   // 1. Initialize SCORM
   const lmsConnected = scorm.init();
+  const embeddedPreview = isEmbeddedPreview();
   if (!lmsConnected) {
-    showStatus('Running in preview mode (not connected to LMS)', 'info');
+    showStatus(
+      embeddedPreview
+        ? 'Author preview mode — testing the real student runtime without Moodle.'
+        : 'Running in preview mode (not connected to LMS)',
+      'info',
+    );
   }
 
   // 2. Load config
   try {
-    const resp = await fetch('config/activity_config.json');
-    if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-    config = await resp.json();
+    config = await loadConfig();
   } catch (err) {
     showStatus(`Failed to load activity config: ${err.message}`, 'error');
     return;
@@ -43,17 +51,11 @@ async function init() {
   initHintEngine(config.hints || [], getWorkspace(), hintPanel);
 
   // 6. Attach event handlers
+  setupResultsModal();
   document.getElementById('btn-run').addEventListener('click', handleRun);
   document.getElementById('btn-reset').addEventListener('click', handleReset);
-
-  const codeToggle = document.getElementById('btn-code-toggle');
-  if (codeToggle) {
-    if (config.ui_settings?.show_code_toggle === false) {
-      codeToggle.style.display = 'none';
-    } else {
-      codeToggle.addEventListener('click', handleCodeToggle);
-    }
-  }
+  configureHintRequestButton(config);
+  configureCodeToggleButton(config);
 
   // 7. Handle window resize
   window.addEventListener('resize', () => {
@@ -64,7 +66,23 @@ async function init() {
   // 8. Handle page unload
   window.addEventListener('beforeunload', () => scorm.terminate());
 
-  showStatus('Activity loaded. Arrange your blocks and click "Run Code"!', 'info');
+  showStatus(
+    embeddedPreview
+      ? 'Preview ready. Build with blocks, run tests, request hints, and inspect generated code.'
+      : 'Activity loaded. Arrange your blocks and click "Run Code"!',
+    'info',
+  );
+}
+
+async function loadConfig() {
+  const previewConfig = window[PREVIEW_CONFIG_GLOBAL];
+  if (previewConfig) {
+    return cloneConfig(previewConfig);
+  }
+
+  const resp = await fetch('config/activity_config.json');
+  if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+  return resp.json();
 }
 
 function renderInstructions(cfg) {
@@ -95,6 +113,29 @@ function renderUISettings(cfg) {
   }
 }
 
+function configureHintRequestButton(cfg) {
+  const hintButton = document.getElementById('btn-request-hint');
+  if (!hintButton) return;
+
+  const hintPanelEnabled = cfg.ui_settings?.show_hint_panel !== false;
+  const hasHints = Array.isArray(cfg.hints) && cfg.hints.length > 0;
+  hintButton.style.display = hintPanelEnabled && hasHints ? 'inline-flex' : 'none';
+  hintButton.onclick = hintPanelEnabled && hasHints ? handleHintRequest : null;
+}
+
+function configureCodeToggleButton(cfg) {
+  const codeToggle = document.getElementById('btn-code-toggle');
+  if (!codeToggle) return;
+
+  if (cfg.ui_settings?.show_code_toggle === false) {
+    codeToggle.style.display = 'none';
+    return;
+  }
+
+  updateCodeToggleButtonLabel(false);
+  codeToggle.addEventListener('click', handleCodeToggle);
+}
+
 async function handleRun() {
   const runBtn = document.getElementById('btn-run');
   runBtn.disabled = true;
@@ -103,6 +144,7 @@ async function handleRun() {
   try {
     const code = generateCode();
     const workspace = getWorkspace();
+    const execution = executeInteractiveRun(code);
     const { results, totalScore, maxScore } = await runTests(
       config.evaluation.test_cases,
       code,
@@ -110,7 +152,8 @@ async function handleRun() {
     );
 
     attemptCount++;
-    renderResults(results, totalScore, maxScore);
+    renderRunOutput(execution, results, totalScore, maxScore);
+    openResultsModal();
 
     // Report score to SCORM
     const normalizedScore = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
@@ -137,49 +180,152 @@ function handleReset() {
   if (config.blockly_setup.starting_blocks) {
     Blockly.serialization.workspaces.load(config.blockly_setup.starting_blocks, workspace);
   }
-  document.getElementById('output-panel').innerHTML = '';
+  setOutputPlaceholder();
+  closeResultsModal();
   showStatus('Workspace reset to starting state.', 'info');
+}
+
+function handleHintRequest() {
+  requestHint();
 }
 
 function handleCodeToggle() {
   const codePanel = document.getElementById('code-panel');
   if (!codePanel) return;
 
-  if (codePanel.style.display === 'none') {
-    try {
-      const code = generateCode();
-      codePanel.querySelector('code').textContent = code;
-      codePanel.style.display = 'block';
-    } catch {
-      showStatus('Add some blocks first to see the code.', 'info');
+  const shouldShowCode = !isCodePanelVisible();
+
+  if (!shouldShowCode) {
+    setCodePanelVisible(false);
+    if (!hasRunOutput()) {
+      closeResultsModal();
     }
-  } else {
-    codePanel.style.display = 'none';
+    return;
+  }
+
+  try {
+    const code = generateCode();
+    codePanel.querySelector('code').textContent = code;
+    setCodePanelVisible(true);
+    openResultsModal();
+  } catch {
+    showStatus('Add some blocks first to see the code.', 'info');
   }
 }
 
-function renderResults(results, totalScore, maxScore) {
+function renderRunOutput(execution, results, totalScore, maxScore) {
   const panel = document.getElementById('output-panel');
   if (!panel) return;
 
   const percent = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
-  const allPassed = results.every((r) => r.passed);
+  const allPassed = results.length > 0 ? results.every((r) => r.passed) : execution.success;
 
-  let html = `<div class="results-header ${allPassed ? 'results-pass' : 'results-fail'}">`;
-  html += `<strong>${allPassed ? '✅ All tests passed!' : '❌ Some tests failed'}</strong>`;
-  html += ` — Score: ${percent}%`;
+  let html = '<div class="output-section">';
+  html += '<h3>Program Output</h3>';
+
+  if (execution.stdout) {
+    html += `<pre class="output-console">${escapeHtml(execution.stdout)}</pre>`;
+  } else {
+    html += '<p class="output-empty">No console output produced.</p>';
+  }
+
+  if (execution.prompts.length > 0) {
+    html += '<div class="prompt-log">';
+    html += '<h4>Inputs used during this run</h4>';
+    html += '<ul class="prompt-list">';
+    execution.prompts.forEach((entry, index) => {
+      const label = entry.message || `Prompt ${index + 1}`;
+      const response = entry.cancelled ? '<em>Cancelled</em>' : `<code>${escapeHtml(entry.response)}</code>`;
+      html += `<li class="prompt-item"><strong>${escapeHtml(label)}</strong><span class="prompt-arrow">→</span>${response}</li>`;
+    });
+    html += '</ul></div>';
+  }
+
+  if (!execution.success) {
+    html += `<div class="run-error"><strong>Runtime error:</strong> ${escapeHtml(execution.error || 'Unknown error')}</div>`;
+  }
+
   html += '</div>';
 
-  html += '<ul class="results-list">';
-  for (const r of results) {
-    html += `<li class="${r.passed ? 'result-pass' : 'result-fail'}">`;
-    html += `<span class="result-icon">${r.passed ? '✓' : '✗'}</span> `;
-    html += escapeHtml(r.feedback);
-    html += '</li>';
+  if (results.length > 0) {
+    html += `<div class="results-section">`;
+    html += `<div class="results-header ${allPassed ? 'results-pass' : 'results-fail'}">`;
+    html += `<strong>${allPassed ? '✅ All automated checks passed!' : '❌ Some automated checks failed'}</strong>`;
+    html += ` — Score: ${percent}%`;
+    html += '</div>';
+
+    html += '<ul class="results-list">';
+    for (const r of results) {
+      html += `<li class="${r.passed ? 'result-pass' : 'result-fail'}">`;
+      html += `<span class="result-icon">${r.passed ? '✓' : '✗'}</span> `;
+      html += escapeHtml(r.feedback);
+      html += '</li>';
+    }
+    html += '</ul></div>';
   }
-  html += '</ul>';
 
   panel.innerHTML = html;
+}
+
+function setupResultsModal() {
+  document.getElementById('btn-close-results-modal')?.addEventListener('click', () => {
+    closeResultsModal();
+  });
+  document.getElementById('results-modal-backdrop')?.addEventListener('click', () => {
+    closeResultsModal();
+  });
+  window.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') {
+      closeResultsModal();
+    }
+  });
+  setOutputPlaceholder();
+}
+
+function openResultsModal() {
+  const modal = document.getElementById('results-modal');
+  if (!modal) return;
+
+  modal.classList.remove('hidden');
+  modal.setAttribute('aria-hidden', 'false');
+  document.body.classList.add('modal-open');
+}
+
+function closeResultsModal() {
+  const modal = document.getElementById('results-modal');
+  if (!modal) return;
+
+  modal.classList.add('hidden');
+  modal.setAttribute('aria-hidden', 'true');
+  document.body.classList.remove('modal-open');
+  setCodePanelVisible(false);
+}
+
+function setOutputPlaceholder() {
+  const outputPanel = document.getElementById('output-panel');
+  if (!outputPanel) return;
+  outputPanel.innerHTML = OUTPUT_PLACEHOLDER_HTML;
+}
+
+function hasRunOutput() {
+  return !document.getElementById('output-panel')?.querySelector('.output-placeholder');
+}
+
+function isCodePanelVisible() {
+  return document.getElementById('code-panel')?.style.display !== 'none';
+}
+
+function setCodePanelVisible(visible) {
+  const codePanel = document.getElementById('code-panel');
+  if (!codePanel) return;
+  codePanel.style.display = visible ? 'block' : 'none';
+  updateCodeToggleButtonLabel(visible);
+}
+
+function updateCodeToggleButtonLabel(visible) {
+  const codeToggle = document.getElementById('btn-code-toggle');
+  if (!codeToggle) return;
+  codeToggle.textContent = visible ? '{ } Hide Code' : '{ } Show Code';
 }
 
 function showStatus(message, type) {
@@ -191,8 +337,19 @@ function showStatus(message, type) {
 
 function escapeHtml(str) {
   const div = document.createElement('div');
-  div.textContent = str;
+  div.textContent = str == null ? '' : String(str);
   return div.innerHTML;
+}
+
+function cloneConfig(value) {
+  if (typeof globalThis.structuredClone === 'function') {
+    return globalThis.structuredClone(value);
+  }
+  return JSON.parse(JSON.stringify(value));
+}
+
+function isEmbeddedPreview() {
+  return window[PREVIEW_MODE_GLOBAL] === true;
 }
 
 // Expose functions for inline event handlers

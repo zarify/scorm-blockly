@@ -1,5 +1,7 @@
 import { getDefaultCategoryColour } from './blockly-toolbox.js';
+import { BLOCK_PATTERN_TYPE } from './block-pattern.js';
 import {
+  VALID_FIELD_VALUE_MATCH_MODES,
   VALID_CONDITION_TYPES,
   VALID_HINT_EVENTS,
   VALID_STDOUT_MATCH_MODES,
@@ -108,7 +110,7 @@ function createBaseConfig(source) {
     },
     ui_settings: {
       theme: asStringOr(uiSettings.theme, 'default'),
-      show_code_toggle: uiSettings.show_code_toggle !== false,
+      show_code_toggle: uiSettings.show_code_toggle === true,
       show_hint_panel: uiSettings.show_hint_panel !== false,
       max_attempts: asOptionalInteger(uiSettings.max_attempts, null),
     },
@@ -272,6 +274,22 @@ function normalizeDraftCondition(condition) {
         outer_type: asStringOr(condition.outer_type, ''),
         inner_type: asStringOr(condition.inner_type, ''),
         input_name: asStringOr(condition.input_name, ''),
+        ...(condition.field_name !== undefined
+          ? { field_name: asStringOr(condition.field_name, '') }
+          : {}),
+        ...(condition.expected_value !== undefined
+          ? { expected_value: condition.expected_value ?? '' }
+          : {}),
+        ...(condition.match_mode !== undefined
+          ? {
+              match_mode: VALID_FIELD_VALUE_MATCH_MODES.includes(condition.match_mode)
+                ? condition.match_mode
+                : 'exact',
+            }
+          : {}),
+        ...(condition.regex_flags !== undefined
+          ? { regex_flags: asStringOr(condition.regex_flags, '') }
+          : {}),
       };
     case 'block_field_value':
       return {
@@ -279,6 +297,16 @@ function normalizeDraftCondition(condition) {
         block_type: asStringOr(condition.block_type, ''),
         field_name: asStringOr(condition.field_name, ''),
         expected_value: condition.expected_value ?? '',
+        match_mode: VALID_FIELD_VALUE_MATCH_MODES.includes(condition.match_mode)
+          ? condition.match_mode
+          : 'exact',
+        regex_flags: asStringOr(condition.regex_flags, ''),
+      };
+    case BLOCK_PATTERN_TYPE:
+      return {
+        type: condition.type,
+        workspace_state: isObjectLike(condition.workspace_state) ? condition.workspace_state : null,
+        field_constraints: normalizePatternFieldConstraints(condition.field_constraints),
       };
     case 'block_count':
       return {
@@ -330,19 +358,46 @@ function normalizePublishCondition(condition) {
         lower_type: asStringOr(condition.lower_type, ''),
       };
     case 'block_nested':
+      {
+        const fieldName = asStringOr(condition.field_name, '').trim();
+        const hasScopedValueConstraint = fieldName !== ''
+          || condition.expected_value !== undefined
+          || condition.match_mode === 'regex'
+          || asStringOr(condition.regex_flags, '') !== '';
       return {
         type,
         outer_type: asStringOr(condition.outer_type, ''),
         inner_type: asStringOr(condition.inner_type, ''),
         input_name: asStringOr(condition.input_name, ''),
+        ...(fieldName !== '' ? { field_name: fieldName } : {}),
+        ...(hasScopedValueConstraint && condition.expected_value !== undefined
+          ? { expected_value: condition.expected_value }
+          : {}),
+        ...(hasScopedValueConstraint && condition.match_mode !== undefined
+          ? { match_mode: asStringOr(condition.match_mode, '') }
+          : {}),
+        ...(hasScopedValueConstraint && condition.regex_flags !== undefined
+          ? { regex_flags: asStringOr(condition.regex_flags, '') }
+          : {}),
       };
+      }
     case 'block_field_value':
       return {
         type,
         block_type: asStringOr(condition.block_type, ''),
         field_name: asStringOr(condition.field_name, ''),
         ...(condition.expected_value !== undefined ? { expected_value: condition.expected_value } : {}),
+        ...(condition.match_mode !== undefined ? { match_mode: asStringOr(condition.match_mode, '') } : {}),
+        ...(condition.regex_flags !== undefined ? { regex_flags: asStringOr(condition.regex_flags, '') } : {}),
       };
+    case BLOCK_PATTERN_TYPE: {
+      const fieldConstraints = normalizePatternFieldConstraints(condition.field_constraints);
+      return {
+        type,
+        ...(isObjectLike(condition.workspace_state) ? { workspace_state: condition.workspace_state } : {}),
+        ...(Object.keys(fieldConstraints).length > 0 ? { field_constraints: fieldConstraints } : {}),
+      };
+    }
     case 'block_count':
       return {
         type,
@@ -397,4 +452,35 @@ function asPositiveInteger(value, fallback) {
   const normalized = asOptionalInteger(value, fallback);
   if (normalized === null) return fallback;
   return normalized < 1 ? fallback : normalized;
+}
+
+function normalizePatternFieldConstraints(value) {
+  if (!isObjectLike(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([blockId, fields]) => {
+        if (!isObjectLike(fields)) return [];
+
+        const normalizedFields = Object.fromEntries(
+          Object.entries(fields)
+            .map(([fieldName, constraint]) => {
+              if (!isObjectLike(constraint)) return [];
+              return [[fieldName, {
+                expected_value: constraint.expected_value ?? '',
+                match_mode: VALID_FIELD_VALUE_MATCH_MODES.includes(constraint.match_mode)
+                  ? constraint.match_mode
+                  : 'exact',
+                regex_flags: asStringOr(constraint.regex_flags, ''),
+              }]];
+            })
+            .flat(),
+        );
+
+        return Object.keys(normalizedFields).length > 0
+          ? [[blockId, normalizedFields]]
+          : [];
+      })
+      .flat(),
+  );
 }

@@ -3,11 +3,13 @@
  */
 
 import { getConfig, notifyChange, onConfigChange, Blockly } from './builder-app.js';
+import { BLOCK_PATTERN_TYPE } from '../../shared/block-pattern.js';
 import {
   createConditionSuggestionIds,
   getConditionBlockDefinitionMetadata,
   getSuggestedConditionBlockTypes,
 } from './condition-suggestions.js';
+import { renderPatternBuilder } from './pattern-builder.js';
 
 let selectedHintIndex = -1;
 let lastConfigRef = null;
@@ -15,15 +17,19 @@ let lastConfigRef = null;
 const CONDITION_TYPES = [
   { value: 'block_exists', label: 'Block exists' },
   { value: 'block_missing', label: 'Block missing' },
-  { value: 'block_connected', label: 'Blocks connected (sequential)' },
-  { value: 'block_nested', label: 'Block attached to another block input' },
-  { value: 'block_field_value', label: 'Block field has value' },
+  { value: BLOCK_PATTERN_TYPE, label: 'Visual block pattern' },
   { value: 'block_count', label: 'Block count in range' },
   { value: 'workspace_empty', label: 'Workspace is empty' },
   { value: 'all', label: 'ALL conditions (AND)' },
   { value: 'any', label: 'ANY condition (OR)' },
   { value: 'none', label: 'NONE of conditions (NOT)' },
 ];
+
+const LEGACY_CONDITION_TYPES = {
+  block_connected: 'Blocks connected (sequential) — legacy',
+  block_nested: 'Block inside another block input subtree — legacy',
+  block_field_value: 'Block field matches value/pattern — legacy',
+};
 
 const TRIGGER_EVENTS = [
   { value: 'workspace_change', label: 'Workspace changes' },
@@ -193,7 +199,7 @@ function renderConditionBuilder(container, condition, onChange) {
     <div class="condition-builder">
       <div class="condition-row">
         <select class="condition-type-select">
-          ${CONDITION_TYPES.map((ct) => `<option value="${ct.value}" ${condition.type === ct.value ? 'selected' : ''}>${ct.label}</option>`).join('')}
+          ${getConditionTypeOptions(condition.type).map((ct) => `<option value="${ct.value}" ${condition.type === ct.value ? 'selected' : ''}>${ct.label}</option>`).join('')}
         </select>
       </div>
       <div class="condition-fields"></div>
@@ -210,6 +216,9 @@ function renderConditionBuilder(container, condition, onChange) {
     const newCondition = { type: newType };
     if (['all', 'any', 'none'].includes(newType)) {
       newCondition.conditions = [{ type: 'workspace_empty' }];
+    } else if (newType === BLOCK_PATTERN_TYPE) {
+      newCondition.workspace_state = null;
+      newCondition.field_constraints = {};
     }
     onChange(newCondition);
     renderConditionBuilder(container, newCondition, onChange);
@@ -224,6 +233,7 @@ function renderConditionFields(container, condition, onChange) {
     .map((blockType) => `<option value="${escapeAttr(blockType)}"></option>`)
     .join('');
   const outerBlockMetadata = getConditionBlockDefinitionMetadata(Blockly, condition.outer_type);
+  const innerBlockMetadata = getConditionBlockDefinitionMetadata(Blockly, condition.inner_type);
   const conditionBlockMetadata = getConditionBlockDefinitionMetadata(Blockly, condition.block_type);
   let html = '';
 
@@ -264,22 +274,64 @@ function renderConditionFields(container, condition, onChange) {
         <datalist id="${datalistIds.inputNames}">
           ${outerBlockMetadata.inputNames.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}
         </datalist>
+        <datalist id="${datalistIds.fieldNames}">
+          ${innerBlockMetadata.fieldNames.map((name) => `<option value="${escapeAttr(name)}"></option>`).join('')}
+        </datalist>
         <div class="condition-row">
           <label>Parent block:</label>
           <input type="text" class="cond-outer-type" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.outer_type || '')}" placeholder="e.g. controls_repeat_ext">
         </div>
         <div class="condition-row">
-          <label>Attached block:</label>
+          <label>Matched descendant block:</label>
           <input type="text" class="cond-inner-type" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.inner_type || '')}" placeholder="e.g. text_print">
         </div>
         <div class="condition-row">
-          <label>Input / argument name:</label>
+          <label>Outer block input name:</label>
           <input type="text" class="cond-input-name" list="${datalistIds.inputNames}" value="${escapeAttr(condition.input_name || '')}" placeholder="e.g. DO or VALUE">
         </div>
+        <p style="font-size:12px;color:#666;margin:8px 0 0">
+          Use the input on the <strong>outer</strong> block that this subtree hangs from. For example,
+          <code>variables_set.VALUE</code> matches the whole value plugged into "set ... to", while
+          <code>text_prompt_ext.TEXT</code> matches the prompt message input.
+        </p>
+        <div class="condition-row" style="margin-top:12px">
+          <label>Matched descendant field name (optional):</label>
+          <input type="text" class="cond-desc-field-name" list="${datalistIds.fieldNames}" value="${escapeAttr(condition.field_name || '')}" placeholder="e.g. TEXT">
+        </div>
+        ${condition.field_name
+          ? `
+        <div class="condition-row">
+          <label>${(condition.match_mode || 'exact') === 'regex' ? 'Regex pattern:' : 'Expected descendant field value:'}</label>
+          <input type="text" class="cond-desc-expected" value="${escapeAttr(String(condition.expected_value ?? ''))}" placeholder="${(condition.match_mode || 'exact') === 'regex' ? 'e.g. Who.*\\?' : `e.g. Who's there?`}">
+        </div>
+        <div class="condition-row">
+          <label>Descendant value match mode:</label>
+          <select class="cond-desc-match-mode">
+            <option value="exact" ${(condition.match_mode || 'exact') === 'exact' ? 'selected' : ''}>Exact value</option>
+            <option value="regex" ${(condition.match_mode || 'exact') === 'regex' ? 'selected' : ''}>Regex (full match)</option>
+          </select>
+        </div>
+        ${(condition.match_mode || 'exact') === 'regex' ? `
+        <div class="condition-row">
+          <label>Regex flags:</label>
+          <input type="text" class="cond-desc-regex-flags" value="${escapeAttr(condition.regex_flags || '')}" placeholder="e.g. i">
+        </div>` : ''}
+        <p style="font-size:12px;color:#666;margin:8px 0 0">
+          This value constraint is checked only on matching <code>${escapeHtml(condition.inner_type || 'inner_type')}</code> descendants inside
+          <code>${escapeHtml(condition.outer_type || 'outer_type')}.${escapeHtml(condition.input_name || 'input_name')}</code>.
+        </p>`
+          : ''}
         ${outerBlockMetadata.inputNames.length > 0
           ? `<p style="font-size:12px;color:#666;margin:8px 0 0">Inputs on ${escapeHtml(condition.outer_type || 'this block')}: ${outerBlockMetadata.inputNames.join(', ')}. This works for statement inputs like DO and value inputs like VALUE or TEXT.</p>`
           : ''}
+        ${innerBlockMetadata.fieldNames.length > 0
+          ? `<p style="font-size:12px;color:#666;margin:8px 0 0">Fields on ${escapeHtml(condition.inner_type || 'this block')}: ${innerBlockMetadata.fieldNames.join(', ')}</p>`
+          : ''}
       `;
+      break;
+
+    case BLOCK_PATTERN_TYPE:
+      html = '<div class="pattern-builder-mount"></div>';
       break;
 
     case 'block_field_value':
@@ -297,9 +349,25 @@ function renderConditionFields(container, condition, onChange) {
           <input type="text" class="cond-field-name" list="${datalistIds.fieldNames}" value="${escapeAttr(condition.field_name || '')}">
         </div>
         <div class="condition-row">
-          <label>Expected value:</label>
-          <input type="text" class="cond-expected" value="${escapeAttr(String(condition.expected_value || ''))}">
+          <label>${(condition.match_mode || 'exact') === 'regex' ? 'Regex pattern:' : 'Expected value:'}</label>
+          <input type="text" class="cond-expected" value="${escapeAttr(String(condition.expected_value || ''))}" placeholder="${(condition.match_mode || 'exact') === 'regex' ? 'e.g. Who.*\\?' : 'e.g. Hello'}">
         </div>
+        <div class="condition-row">
+          <label>Value match mode:</label>
+          <select class="cond-match-mode">
+            <option value="exact" ${(condition.match_mode || 'exact') === 'exact' ? 'selected' : ''}>Exact value</option>
+            <option value="regex" ${(condition.match_mode || 'exact') === 'regex' ? 'selected' : ''}>Regex (full match)</option>
+          </select>
+        </div>
+        ${(condition.match_mode || 'exact') === 'regex' ? `
+        <div class="condition-row">
+          <label>Regex flags:</label>
+          <input type="text" class="cond-regex-flags" value="${escapeAttr(condition.regex_flags || '')}" placeholder="e.g. i">
+        </div>` : ''}
+        <p style="font-size:12px;color:#666;margin:8px 0 0">
+          Regex mode matches the <strong>entire</strong> field value, not a substring. Use patterns like
+          <code>.*</code> as a wildcard, or flags like <code>i</code> for case-insensitive matching.
+        </p>
         ${conditionBlockMetadata.fieldNames.length > 0
           ? `<p style="font-size:12px;color:#666;margin:8px 0 0">Fields on ${escapeHtml(condition.block_type || 'this block')}: ${conditionBlockMetadata.fieldNames.join(', ')}</p>`
           : ''}
@@ -335,6 +403,14 @@ function renderConditionFields(container, condition, onChange) {
   }
 
   container.innerHTML = html;
+
+  if (condition.type === BLOCK_PATTERN_TYPE) {
+    const patternContainer = container.querySelector('.pattern-builder-mount');
+    if (patternContainer) {
+      renderPatternBuilder(patternContainer, condition, onChange);
+    }
+    return;
+  }
 
   // Bind fields based on type
   bindConditionInputs(container, condition, onChange);
@@ -384,7 +460,9 @@ function bindConditionInputs(container, condition, onChange) {
     if (el) {
       const event = options.event || 'input';
       el.addEventListener(event, (e) => {
-        condition[field] = transform ? transform(e.target.value) : e.target.value;
+        const nextValue = transform ? transform(e.target.value) : e.target.value;
+        condition[field] = nextValue;
+        options.afterChange?.(condition, nextValue);
         onChange(condition);
         if (options.rerenderFields) {
           renderConditionFields(container, condition, onChange);
@@ -404,10 +482,37 @@ function bindConditionInputs(container, condition, onChange) {
     event: 'change',
     rerenderFields: true,
   });
-  bindInput('.cond-inner-type', 'inner_type');
+  bindInput('.cond-inner-type', 'inner_type', undefined, {
+    event: 'change',
+    rerenderFields: true,
+  });
   bindInput('.cond-input-name', 'input_name');
+  bindInput('.cond-desc-field-name', 'field_name', undefined, {
+    event: 'change',
+    afterChange: (currentCondition, nextValue) => {
+      if (!String(nextValue).trim()) {
+        delete currentCondition.expected_value;
+        delete currentCondition.match_mode;
+        delete currentCondition.regex_flags;
+      } else if (!currentCondition.match_mode) {
+        currentCondition.match_mode = 'exact';
+      }
+    },
+    rerenderFields: true,
+  });
+  bindInput('.cond-desc-expected', 'expected_value');
+  bindInput('.cond-desc-match-mode', 'match_mode', undefined, {
+    event: 'change',
+    rerenderFields: true,
+  });
+  bindInput('.cond-desc-regex-flags', 'regex_flags');
   bindInput('.cond-field-name', 'field_name');
   bindInput('.cond-expected', 'expected_value');
+  bindInput('.cond-match-mode', 'match_mode', undefined, {
+    event: 'change',
+    rerenderFields: true,
+  });
+  bindInput('.cond-regex-flags', 'regex_flags');
   bindInput('.cond-min', 'min', (v) => parseInt(v) || 0);
   bindInput('.cond-max', 'max', (v) => parseInt(v) || 10);
 }
@@ -440,6 +545,16 @@ function updateHintListTitle(index, message) {
   const title = document.querySelector(`.list-item[data-index="${index}"] .list-item-title`);
   if (!title) return;
   title.textContent = getHintListTitle(message);
+}
+
+function getConditionTypeOptions(currentType) {
+  if (!currentType || CONDITION_TYPES.some((type) => type.value === currentType)) {
+    return CONDITION_TYPES;
+  }
+  return [
+    ...CONDITION_TYPES,
+    { value: currentType, label: LEGACY_CONDITION_TYPES[currentType] || `${currentType} — legacy` },
+  ];
 }
 
 function escapeHtml(str) {

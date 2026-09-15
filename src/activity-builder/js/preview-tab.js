@@ -1,15 +1,19 @@
 /**
- * Preview Tab — Live simulation of the student experience.
+ * Preview Tab — Interactive student-runtime preview.
  *
- * Creates a sandboxed preview by building an inline HTML document from the
- * current config state and loading it in an iframe.
+ * Builds an iframe document that bootstraps the real student app bundle with
+ * the current in-memory config injected inline.
  */
 
-import { getTestPoints } from '../../shared/test-config.js';
 import { getConfig, onConfigChange } from './builder-app.js';
 
 export function initPreviewTab() {
   document.getElementById('btn-refresh-preview').addEventListener('click', refreshPreview);
+  onConfigChange(() => {
+    if (isPreviewActive()) {
+      refreshPreview();
+    }
+  });
 
   window.addEventListener('tab-activated', (e) => {
     if (e.detail.tab === 'preview') {
@@ -22,110 +26,95 @@ function refreshPreview() {
   const iframe = document.getElementById('preview-iframe');
   if (!iframe) return;
 
-  const config = getConfig();
-
-  // Build a self-contained preview HTML document
-  const html = buildPreviewHtml(config);
-  iframe.srcdoc = html;
+  iframe.srcdoc = buildPreviewHtml(getConfig());
 }
 
 function buildPreviewHtml(config) {
-  const configJSON = JSON.stringify(config, null, 2);
+  const previewBaseHref = new URL('./preview/', window.location.href).href;
+  const title = escapeHtml(config.metadata?.title || 'Blockly Activity Preview');
+  const inlineConfig = serializeForInlineScript(config);
 
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: #f5f5f5;
-      padding: 16px;
-    }
-    h2 { font-size: 16px; margin-bottom: 8px; }
-    .instructions { background: #fff; padding: 12px; border-radius: 6px; margin-bottom: 12px; }
-    .instructions p { font-size: 14px; line-height: 1.5; margin-bottom: 8px; }
-    .instructions ol { padding-left: 20px; font-size: 13px; line-height: 1.7; }
-    .preview-note {
-      background: #e3f2fd; color: #1565c0; padding: 8px 12px;
-      border-radius: 6px; font-size: 13px; margin-bottom: 12px;
-    }
-    .config-preview {
-      background: #263238; color: #eeffff; padding: 12px;
-      border-radius: 6px; font-size: 11px; line-height: 1.4;
-      max-height: 400px; overflow: auto; white-space: pre-wrap;
-      font-family: 'SF Mono', 'Monaco', 'Menlo', monospace;
-    }
-    .hint-preview {
-      background: #fff8e1; border: 1px solid #ffecb3;
-      border-radius: 6px; padding: 10px; margin-bottom: 8px;
-      font-size: 13px;
-    }
-    .test-preview {
-      background: #fff; border-radius: 6px; padding: 12px; margin-bottom: 8px;
-    }
-    .test-item { padding: 4px 0; font-size: 13px; border-bottom: 1px solid #f0f0f0; }
-    .section { margin-bottom: 16px; }
-    .section h3 { font-size: 14px; color: #555; margin-bottom: 8px; }
-  </style>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>${title}</title>
+  <base href="${escapeAttr(previewBaseHref)}">
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <div class="preview-note">
-    📋 Preview Mode — This shows a summary of the activity configuration.
-    The full interactive Blockly workspace is available in the built SCORM package.
-  </div>
+  <div id="app">
+    <header id="status-bar" class="status-bar status-info">Loading interactive preview...</header>
 
-  <div class="instructions">
-    <h2>${escapeHtml(config.metadata?.title || 'Untitled Activity')}</h2>
-    ${config.metadata?.description ? `<p style="color:#666;font-size:13px">${escapeHtml(config.metadata.description)}</p>` : ''}
-    ${config.instructions?.main ? `<p>${escapeHtml(config.instructions.main)}</p>` : ''}
-    ${config.instructions?.steps?.length ? `
-      <ol>
-        ${config.instructions.steps.map((s) => `<li>${escapeHtml(s)}</li>`).join('')}
-      </ol>
-    ` : ''}
-  </div>
-
-  <div class="section">
-    <h3>🧰 Toolbox (${config.blockly_setup?.toolbox?.categories?.length || 0} categories)</h3>
-    ${(config.blockly_setup?.toolbox?.categories || []).map((cat) => `
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;font-size:13px">
-        <span style="width:12px;height:12px;border-radius:2px;background:${cat.colour || '#999'}"></span>
-        <strong>${escapeHtml(cat.name)}</strong>
-        <span style="color:#999">(${cat.blocks?.length || 0} blocks)</span>
-      </div>
-    `).join('')}
-  </div>
-
-  ${(config.hints?.length || 0) > 0 ? `
-    <div class="section">
-      <h3>💡 Hints (${config.hints.length})</h3>
-      ${config.hints.map((h) => `<div class="hint-preview">${escapeHtml(h.message)}</div>`).join('')}
-    </div>
-  ` : ''}
-
-  <div class="section">
-    <h3>✅ Test Cases (${config.evaluation?.test_cases?.length || 0})</h3>
-    <div class="test-preview">
-      ${(config.evaluation?.test_cases || []).map((tc) => `
-        <div class="test-item">
-          <strong>${tc.type}</strong> — ${escapeHtml(tc.id)} (${getTestPoints(tc)} point${getTestPoints(tc) === 1 ? '' : 's'})
-          ${tc.feedback_on_fail ? `<br><small style="color:#999">${escapeHtml(tc.feedback_on_fail)}</small>` : ''}
+    <div id="main-layout">
+      <aside id="left-panel">
+        <div id="instructions-panel" class="panel">
+          <h2>Instructions</h2>
+          <p>Loading...</p>
         </div>
-      `).join('')}
+        <div id="hint-panel" class="panel hint-panel">
+          <h3>💡 Hints</h3>
+          <p class="hint-empty">No hints available right now.</p>
+        </div>
+      </aside>
+
+      <main id="workspace-area">
+        <div id="blockly-workspace"></div>
+        <div id="controls">
+          <button id="btn-run" class="btn btn-primary">▶ Run Code</button>
+          <button id="btn-reset" class="btn btn-secondary">↺ Reset</button>
+          <button id="btn-request-hint" class="btn btn-secondary">💡 Get Hint</button>
+          <button id="btn-code-toggle" class="btn btn-secondary">{ } Show Code</button>
+        </div>
+      </main>
     </div>
   </div>
-
-  <div class="section">
-    <h3>📄 Raw Configuration</h3>
-    <div class="config-preview">${escapeHtml(configJSON)}</div>
+  <div id="results-modal" class="results-modal hidden" aria-hidden="true">
+    <button id="results-modal-backdrop" class="results-modal-backdrop" type="button" aria-label="Close results"></button>
+    <section class="results-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="results-modal-title">
+      <header class="results-modal-header">
+        <h2 id="results-modal-title">Run details</h2>
+        <button id="btn-close-results-modal" class="btn btn-secondary results-modal-close" type="button" aria-label="Close results">✕</button>
+      </header>
+      <div class="results-modal-body">
+        <div id="output-panel" class="panel">
+          <p class="output-placeholder">Run your code to see console output, prompts, and automated checks here.</p>
+        </div>
+        <div id="code-panel" class="panel" style="display: none;">
+          <h3>Generated Code</h3>
+          <pre><code></code></pre>
+        </div>
+      </div>
+    </section>
   </div>
+  <script>
+    window.__BLOCKLY_SCORM_PREVIEW_MODE__ = true;
+    window.__BLOCKLY_SCORM_PREVIEW_CONFIG__ = ${inlineConfig};
+  </script>
+  <script src="app.bundle.js"></script>
 </body>
 </html>`;
+}
+
+function isPreviewActive() {
+  return document.getElementById('tab-preview')?.classList.contains('active');
+}
+
+function serializeForInlineScript(value) {
+  return JSON.stringify(value)
+    .replace(/&/g, '\\u0026')
+    .replace(/</g, '\\u003c')
+    .replace(/>/g, '\\u003e')
+    .replace(/\u2028/g, '\\u2028')
+    .replace(/\u2029/g, '\\u2029');
 }
 
 function escapeHtml(str) {
   if (!str) return '';
   return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function escapeAttr(str) {
+  return escapeHtml(str).replace(/'/g, '&#39;');
 }

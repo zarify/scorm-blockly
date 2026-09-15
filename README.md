@@ -30,9 +30,9 @@ npm run build
    - **Config**: Set title, description, instructions
    - **Workspace**: Design the starter blocks (what students see when they open the activity)
    - **Toolbox**: Seed the student toolbox from the saved Workspace blocks, then rename categories, adjust colours, and choose which blocks students see
-   - **Hints**: Create progressive hints triggered by workspace state or test failures
-   - **Tests**: Define test cases (output matching, block structure checks, variable state)
-   - **Preview**: See a summary of the configured activity
+   - **Hints**: Create progressive hints triggered by workspace state or test failures, including visual block-pattern matchers
+   - **Tests**: Define test cases (output matching, block structure checks, variable state), including visual block-pattern matchers
+   - **Preview**: Run the real student experience inside the builder to test blocks, hints, tests, and generated code before exporting
 4. Click **Export JSON** to download the config, or **Export SCORM** to get a `.zip`
 5. Upload the SCORM `.zip` to Moodle as a SCORM activity
 
@@ -96,11 +96,14 @@ Tests award integer **points** rather than percentages, and execution-based test
 
 Conditions inspect the Blockly workspace and support:
 - `block_exists` / `block_missing` — Check if a block type is present
+- `block_pattern` — Visual pattern workspace for arbitrary mixed sequences/subtrees with wildcard blocks
 - `block_connected` — Two blocks are connected sequentially
-- `block_nested` — Block is attached to another block's input or argument (for example `text_prompt_ext` in `variables_set.VALUE`, or a block inside a loop `DO` input)
+- `block_nested` — Block appears somewhere inside another block's input subtree, optionally with a scoped descendant field/value constraint
 - `block_field_value` — Block field has a specific value
 - `block_count` — Count of a block type within a range
 - `all` / `any` / `none` — Composite logic (AND / OR / NOT)
+
+In the builder UI, `block_pattern` is now the preferred authoring path for connected/nested/value-matching structures; the older `block_connected`, `block_nested`, and `block_field_value` matchers remain supported mainly for backward compatibility.
 
 ## Architecture
 

@@ -70,13 +70,15 @@ The error toast shows the specific validation error.
 
 ### Export SCORM produces a non-functional package
 
-The builder's SCORM export includes a placeholder `app.bundle.js`. For functional packages, use the command-line workflow:
+If the exported package is non-functional, first rebuild the builder/runtime assets and export again:
 
 ```bash
-cp your-config.json src/scorm-template/config/activity_config.json
 npm run build
-npm run export
+# or, during authoring:
+npm run dev
 ```
+
+Then reopen the builder and export a fresh package. The builder export now includes the real `app.bundle.js`.
 
 ---
 
@@ -93,10 +95,7 @@ npm run export
    config/activity_config.json
    ```
 
-2. **Check the bundle** — If `js/app.bundle.js` is a placeholder (< 1KB), rebuild:
-   ```bash
-   npm run build && npm run export
-   ```
+2. **Check the bundle** — `js/app.bundle.js` should be a full bundled runtime, not a tiny placeholder file. If it looks suspiciously small, rebuild and export again.
 
 3. **Check browser console** — In Moodle, open the SCORM activity, then press F12 to check for JavaScript errors.
 
@@ -135,9 +134,9 @@ Common differences between local preview and Moodle:
 
 1. **Check `show_hint_panel`** — Must be `true` (or omitted, defaults to true) in `ui_settings`
 2. **Check trigger event** — Make sure the event matches what the student is doing:
-   - `workspace_change` only fires when blocks are moved/added/deleted
+   - `workspace_change` fires after meaningful Blockly edits such as moving, adding, deleting, or changing block fields
    - `test_fail` only fires after clicking "Run Code" and failing
-3. **Check delay** — If `delay_seconds` is set, wait that long after the condition becomes true
+3. **Check delay** — If `delay_seconds` is set, wait that long after the condition becomes true; the hint should now appear automatically once the delay elapses
 4. **Check condition** — The condition must evaluate to true. Test with simple conditions first (e.g., `workspace_empty`)
 5. **Check `show_once`** — If true and already dismissed, the hint won't reappear
 
@@ -164,6 +163,7 @@ Common issues with the `input_name` parameter:
 | `controls_if` | `IF0`, `DO0`, `ELSE` | Using `"IF"` instead of `"IF0"` |
 | `controls_repeat_ext` | `TIMES`, `DO` | Using `"BODY"` instead of `"DO"` |
 | `text_print` | `TEXT` | Using `"VALUE"` instead of `"TEXT"` |
+| `variables_set` | `VALUE` | Using `"TEXT"` instead of `"VALUE"` |
 
 To find the correct input name, check the [Blockly block definitions](https://github.com/google/blockly/tree/master/blocks) or inspect a block in the browser console:
 
@@ -174,9 +174,23 @@ console.log(block.inputList.map(i => i.name));
 // → ["FROM", "TO", "BY", "DO"]
 ```
 
+`block_nested` now searches the full subtree hanging off that input. For example, `variables_set.VALUE` can match either the directly attached `text_prompt_ext` block or the nested `text` block inside that prompt.
+
+If you also fill in the optional descendant field/value controls, that value match is scoped to the matching descendants found in that subtree rather than unrelated blocks elsewhere in the workspace.
+
+### `block_pattern` condition not matching
+
+Check these first:
+
+1. **Single root block** — the pattern workspace must have exactly one top-level root block
+2. **Wildcard choice** — use **any block(s)** only for statement chains, and **any value** only for value inputs
+3. **Scoped field constraints** — field constraints are tied to the selected pattern block, not applied workspace-wide
+4. **Regex mode** — regex field constraints are full matches, not substring searches
+5. **Structure direction** — nested inputs and vertical `next` chains must be connected in the pattern exactly the way you want them matched
+
 ### `block_field_value` not matching
 
-Remember that comparison is **string-based**. Common pitfalls:
+Remember that comparison is **string-based** in exact mode, or a **full regex match** in regex mode. Common pitfalls:
 
 ```json
 // ❌ This won't match — field value is string "3", comparing to number 3
@@ -186,11 +200,29 @@ Remember that comparison is **string-based**. Common pitfalls:
 { "expected_value": "3" }
 ```
 
-Both sides are converted to strings via `String()`, so `3` and `"3"` should actually match. But if you're seeing mismatches, check:
+Both sides are converted to strings via `String()` in exact mode, so `3` and `"3"` should actually match. But if you're seeing mismatches, check:
 
 1. The exact field name (case-sensitive)
 2. The exact value (including whitespace)
 3. That the block type is correct
+4. Whether regex mode is enabled when you meant to use an exact value
+5. Whether your regex needs flags like `i` for case-insensitive matching
+
+For Blockly variable dropdown fields like `VAR`, the matcher uses the **variable name** shown in the block, not Blockly's generated internal variable id.
+
+Regex mode uses a full match, not a substring search. For example:
+
+```json
+{ "expected_value": "Who.*\\?", "match_mode": "regex", "regex_flags": "i" }
+```
+
+matches `"Who's there?"`, but:
+
+```json
+{ "expected_value": "there", "match_mode": "regex" }
+```
+
+does **not**, because it is treated like `^(?:there)$`.
 
 ### Regex match not working in stdout_match
 

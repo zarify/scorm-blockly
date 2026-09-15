@@ -78,7 +78,7 @@ Every Blockly activity is defined by a single JSON file: `activity_config.json`.
 | Field | Type | Required | Default | Values | Description |
 |-------|------|----------|---------|--------|-------------|
 | `theme` | string | No | `"default"` | `"default"`, `"dark"`, `"high_contrast"` | ⚠️ **Not yet implemented.** Defined in schema but not applied at runtime. |
-| `show_code_toggle` | boolean | No | `true` | — | Show the "Show Code" button that reveals generated JavaScript |
+| `show_code_toggle` | boolean | No | `false` | — | Show the "Show Code" button that reveals generated JavaScript |
 | `show_hint_panel` | boolean | No | `true` | — | Show the hints panel in the student UI |
 | `max_attempts` | integer or null | No | `null` | `≥ 1` or `null` | ⚠️ **Not yet enforced at runtime.** Defined in schema but the Run Code button is not disabled after N attempts. |
 
@@ -87,7 +87,7 @@ Every Blockly activity is defined by a single JSON file: `activity_config.json`.
 {
   "ui_settings": {
     "theme": "default",
-    "show_code_toggle": true,
+    "show_code_toggle": false,
     "show_hint_panel": true,
     "max_attempts": null
   }
@@ -201,6 +201,8 @@ Each hint object:
 }
 ```
 
+For longer mixed chains/subtrees, `trigger.conditions` can also be a `block_pattern` condition built visually in the authoring UI and stored as a serialized pattern workspace plus optional field constraints.
+
 ---
 
 ## `evaluation` (required)
@@ -269,6 +271,22 @@ See [Test Types](test-types.md) for type-specific fields.
         },
         "points": 2,
         "feedback_on_fail": "Put the print block inside the loop"
+      },
+      {
+        "id": "test_prompt_message",
+        "type": "block_structure",
+        "conditions": {
+          "type": "block_nested",
+          "outer_type": "variables_set",
+          "inner_type": "text",
+          "input_name": "VALUE",
+          "field_name": "TEXT",
+          "expected_value": "Who.*\\?",
+          "match_mode": "regex",
+          "regex_flags": "i"
+        },
+        "points": 2,
+        "feedback_on_fail": "Use a prompt with the expected message."
       }
     ]
   }

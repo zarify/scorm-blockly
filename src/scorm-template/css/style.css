@@ -34,7 +34,7 @@ body {
 /* Main layout */
 #main-layout {
   display: grid;
-  grid-template-columns: 280px 1fr 320px;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
   gap: 0;
   flex: 1;
   overflow: hidden;
@@ -129,6 +129,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
 }
 
 #blockly-workspace {
@@ -139,10 +140,15 @@ body {
 #controls {
   display: flex;
   gap: 8px;
+  flex-wrap: wrap;
   padding: 10px 16px;
   background: #fff;
   border-top: 1px solid #ddd;
   flex-shrink: 0;
+}
+
+#btn-request-hint {
+  display: none;
 }
 
 /* Buttons */
@@ -179,21 +185,155 @@ body {
   background: #bdbdbd;
 }
 
-/* Right panel */
-#right-panel {
+/* Results modal */
+body.modal-open {
+  overflow: hidden;
+}
+
+.results-modal {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  z-index: 1000;
+}
+
+.results-modal.hidden {
+  display: none;
+}
+
+.results-modal-backdrop {
+  position: absolute;
+  inset: 0;
+  border: none;
+  background: rgba(15, 23, 42, 0.56);
+  cursor: pointer;
+}
+
+.results-modal-dialog {
+  position: relative;
   display: flex;
   flex-direction: column;
-  border-left: 1px solid #ddd;
+  width: min(960px, 100%);
+  max-height: min(760px, calc(100vh - 32px));
+  background: #fff;
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
+}
+
+.results-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #ddd;
+  background: #f8fafc;
+}
+
+.results-modal-header h2 {
+  font-size: 16px;
+  color: #1a1a1a;
+}
+
+.results-modal-close {
+  padding: 8px 12px;
+  min-width: 44px;
+}
+
+.results-modal-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   overflow-y: auto;
 }
 
 #output-panel {
-  flex: 1;
+  flex: 1 1 auto;
 }
 
 .output-placeholder {
   color: #999;
   font-style: italic;
+  font-size: 14px;
+}
+
+.output-section,
+.results-section {
+  margin-bottom: 16px;
+}
+
+.output-section h3,
+.prompt-log h4,
+#code-panel h3 {
+  font-size: 14px;
+  margin-bottom: 8px;
+}
+
+.output-console {
+  background: #263238;
+  color: #eeffff;
+  padding: 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin-bottom: 12px;
+}
+
+.output-empty {
+  color: #666;
+  font-size: 14px;
+  margin-bottom: 12px;
+}
+
+.prompt-log {
+  background: #f8f9fb;
+  border: 1px solid #e3e7ee;
+  border-radius: 6px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+
+.prompt-list {
+  list-style: none;
+  padding: 0;
+}
+
+.prompt-item {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 6px;
+}
+
+.prompt-item:last-child {
+  margin-bottom: 0;
+}
+
+.prompt-arrow {
+  color: #666;
+}
+
+.prompt-item code {
+  background: #eef2f7;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.run-error {
+  background: #ffebee;
+  color: #b71c1c;
+  border-radius: 6px;
+  padding: 10px 12px;
   font-size: 14px;
 }
 
@@ -233,13 +373,8 @@ body {
 /* Code panel */
 #code-panel {
   border-top: 1px solid #ddd;
-  max-height: 300px;
+  max-height: min(40vh, 320px);
   overflow-y: auto;
-}
-
-#code-panel h3 {
-  font-size: 14px;
-  margin-bottom: 8px;
 }
 
 #code-panel pre {
@@ -256,12 +391,21 @@ body {
 @media (max-width: 900px) {
   #main-layout {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto minmax(0, 1fr);
   }
 
-  #left-panel, #right-panel {
+  #left-panel {
     border: none;
     border-bottom: 1px solid #ddd;
     max-height: 200px;
+  }
+
+  .results-modal {
+    padding: 8px;
+  }
+
+  .results-modal-dialog {
+    max-height: calc(100vh - 16px);
+    width: 100%;
   }
 }

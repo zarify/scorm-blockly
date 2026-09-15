@@ -81,7 +81,7 @@ Click **💾 Export JSON** in the header. This downloads a `.json` config file y
 
 **Option A — From the builder:**
 
-Click **📦 Export SCORM** in the header. This creates a `.zip` with a placeholder JavaScript bundle. You'll need to replace it with the built bundle.
+Click **📦 Export SCORM** in the header. This creates a complete `.zip` package with the bundled student runtime included.
 
 **Option B — From the command line (recommended):**
 

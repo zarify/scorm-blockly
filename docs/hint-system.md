@@ -7,7 +7,7 @@ The hint system provides real-time, context-sensitive guidance to students as th
 1. The **hint engine** monitors the Blockly workspace for changes (debounced every 2 seconds)
 2. When an event occurs, each hint's **trigger conditions** are evaluated
 3. Hints that pass all checks become **visible** in the hint panel
-4. Students can **dismiss** hints (and `show_once` hints won't return)
+4. Students can **dismiss** hints; `show_once` hints won't return, while other hints stay hidden until the triggering situation changes or the event happens again
 5. Hints are sorted by **priority** — higher priority hints appear first
 
 ## Hint Configuration
@@ -48,7 +48,7 @@ Each hint is an object in the `hints` array:
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `event` | string | ✅ | — | `"workspace_change"`, `"test_fail"`, `"manual"`, or `"timed"` |
-| `conditions` | condition | No | — | Workspace condition that must be true. See [Condition Reference](condition-reference.md) |
+| `conditions` | condition | No | — | Workspace condition that must be true. This can be a simple predicate or a visual `block_pattern`. See [Condition Reference](condition-reference.md) |
 | `after_attempts` | integer | No | `0` | Only show after this many failed test runs |
 
 ---
@@ -60,6 +60,8 @@ Each hint is an object in the `hints` array:
 The most common trigger. Fires when the student adds, removes, moves, or modifies blocks.
 
 **Debouncing:** Evaluations are debounced by 2 seconds — the hint engine waits 2 seconds after the last workspace change before evaluating. This prevents constant flickering as students drag blocks.
+
+**Automatic delayed hints:** If a `workspace_change` hint has `delay_seconds`, the timer starts as soon as the condition becomes true and the hint now appears automatically once that delay elapses, even if the student pauses and makes no further edits.
 
 **Conditions are required** for this trigger type — without a condition, the hint would appear on every change.
 
@@ -93,9 +95,7 @@ Conditions are optional — if provided, the workspace is also checked.
 
 ### `manual`
 
-Fires when the student requests a hint programmatically.
-
-> ⚠️ **No UI button exists yet.** The `requestHint()` function exists in JavaScript but there is currently no "Get Hint" button in the student UI. The `manual` trigger is functional at the API level but students cannot activate it. A "Get Hint" button is planned.
+Fires when the student clicks **💡 Get Hint** (or requests a hint programmatically).
 
 ```json
 {
@@ -276,4 +276,4 @@ Hints appear in the **hint panel** on the left side of the student UI. Each hint
 
 The hint panel is visible by default but can be hidden via `ui_settings.show_hint_panel: false`.
 
-> ⚠️ **Note:** A "Get Hint" button for manual hint requests is not yet present in the student UI. The `manual` trigger event is functional at the API level but students cannot activate it through the interface.
+> **Note:** The student UI now includes a **💡 Get Hint** button, so `manual` trigger hints can be exercised directly in both the exported activity and the builder preview.

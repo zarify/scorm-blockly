@@ -21,45 +21,51 @@ import { evaluateCondition } from './workspace-inspector.js';
  * @param {object} workspace - Blockly workspace instance
  * @param {HintState} state - Current hint state
  * @param {string} event - Current trigger event ('workspace_change' | 'test_fail' | 'manual' | 'timed')
- * @returns {Array<{ id: string, message: string, priority: number }>}
+ * @returns {{ visibleHints: Array<{ id: string, message: string, priority: number }>, nextEvaluationDelayMs: number | null }}
  */
 export function evaluateHints(hints, workspace, state, event) {
-  const visible = [];
+  const visibleHints = [];
+  let nextEvaluationDelayMs = null;
 
   for (const hint of hints) {
-    if (shouldShowHint(hint, workspace, state, event)) {
-      visible.push({
+    const evaluation = evaluateHint(hint, workspace, state, event);
+    if (evaluation.visible) {
+      visibleHints.push({
         id: hint.id,
         message: hint.message,
         priority: hint.priority || 1,
       });
     }
+
+    if (evaluation.pendingDelayMs !== null) {
+      nextEvaluationDelayMs = nextEvaluationDelayMs === null
+        ? evaluation.pendingDelayMs
+        : Math.min(nextEvaluationDelayMs, evaluation.pendingDelayMs);
+    }
   }
 
   // Sort by priority (higher first) and return
-  visible.sort((a, b) => b.priority - a.priority);
-  return visible;
+  visibleHints.sort((a, b) => b.priority - a.priority);
+  return { visibleHints, nextEvaluationDelayMs };
 }
 
 /**
- * Determine if a single hint should be shown.
+ * Determine if a single hint should be shown and when it should be re-evaluated.
  */
-function shouldShowHint(hint, workspace, state, event) {
-  // Skip dismissed hints that are show_once
-  if (hint.show_once && state.dismissed.has(hint.id)) {
-    return false;
-  }
-
+function evaluateHint(hint, workspace, state, event) {
   const trigger = hint.trigger;
+  const delay = hint.delay_seconds || 0;
+  const delayAlreadyStarted = state.firstTriggered.has(hint.id);
 
-  // Event must match (unless evaluating all on 'manual')
-  if (event !== 'manual' && trigger.event !== event) {
-    return false;
+  // Event must match unless the hint is already waiting for its delay timer
+  // to finish from a prior matching event, or we're evaluating all on manual.
+  if (event !== 'manual' && trigger.event !== event && !(delay > 0 && delayAlreadyStarted)) {
+    return { visible: false, pendingDelayMs: null };
   }
 
   // Check attempt threshold
   if (trigger.after_attempts && state.attemptCount < trigger.after_attempts) {
-    return false;
+    return { visible: false, pendingDelayMs: null };
   }
 
   // Evaluate workspace conditions if present
@@ -68,24 +74,32 @@ function shouldShowHint(hint, workspace, state, event) {
     if (!result.passed) {
       // Condition not met — clear the firstTriggered timestamp
       state.firstTriggered.delete(hint.id);
-      return false;
+      if (!hint.show_once) {
+        state.dismissed.delete(hint.id);
+      }
+      return { visible: false, pendingDelayMs: null };
     }
   }
 
+  if (state.dismissed.has(hint.id)) {
+    return { visible: false, pendingDelayMs: null };
+  }
+
   // Check delay — condition must have been true for delay_seconds
-  const delay = hint.delay_seconds || 0;
   if (delay > 0) {
     const now = Date.now();
     if (!state.firstTriggered.has(hint.id)) {
       state.firstTriggered.set(hint.id, now);
+      return { visible: false, pendingDelayMs: delay * 1000 };
     }
-    const elapsed = (now - state.firstTriggered.get(hint.id)) / 1000;
-    if (elapsed < delay) {
-      return false;
+    const elapsedMs = now - state.firstTriggered.get(hint.id);
+    const requiredDelayMs = delay * 1000;
+    if (elapsedMs < requiredDelayMs) {
+      return { visible: false, pendingDelayMs: requiredDelayMs - elapsedMs };
     }
   }
 
-  return true;
+  return { visible: true, pendingDelayMs: null };
 }
 
 /**

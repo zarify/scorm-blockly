@@ -68,7 +68,7 @@
           <h2>UI Settings</h2>
           <div class="form-row">
             <label class="checkbox-label">
-              <input type="checkbox" id="cfg-show-code" checked>
+              <input type="checkbox" id="cfg-show-code">
               Show code toggle
             </label>
             <label class="checkbox-label">
@@ -154,11 +154,11 @@
       <!-- Preview Tab -->
       <section id="tab-preview" class="tab-panel">
         <div id="preview-controls">
-          <button id="btn-refresh-preview" class="btn btn-primary">🔄 Refresh Preview</button>
-          <span class="preview-note">This shows what students will see</span>
+          <button id="btn-refresh-preview" class="btn btn-primary">🔄 Reload Preview</button>
+          <span class="preview-note">This runs the real student view so you can drag blocks, run tests, request hints, and inspect generated code.</span>
         </div>
         <div id="preview-frame-container">
-          <iframe id="preview-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
+          <iframe id="preview-iframe"></iframe>
         </div>
       </section>
     </main>
@@ -167,6 +167,7 @@
     <div id="toast" class="toast hidden"></div>
   </div>
 
+  <script src="runtime-assets.js"></script>
   <script src="js/builder.bundle.js"></script>
 </body>
 </html>

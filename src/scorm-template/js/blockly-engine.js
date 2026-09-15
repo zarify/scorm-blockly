@@ -7,8 +7,11 @@
 import * as Blockly from 'blockly';
 import { javascriptGenerator } from 'blockly/javascript';
 import { buildCategoryToolboxContents } from '../../shared/blockly-toolbox.js';
+import { configureJavascriptGenerator } from '../../shared/blockly-code-generator.js';
 
 let workspace = null;
+
+configureJavascriptGenerator(javascriptGenerator);
 
 /**
  * Initialize the Blockly workspace.

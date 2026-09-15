@@ -10,16 +10,11 @@ const DIST = resolve(ROOT, 'dist');
 
 const target = process.argv.find((a) => a.startsWith('--target='))?.split('=')[1] || 'all';
 
-async function buildScorm() {
-  const outDir = resolve(DIST, 'scorm-template');
-  mkdirSync(outDir, { recursive: true });
-  mkdirSync(resolve(outDir, 'config'), { recursive: true });
-
-  // Bundle all SCORM JS (including shared modules and Blockly) into one file
+async function bundleScormApp(outfile) {
   await esbuild.build({
     entryPoints: [resolve(SRC, 'scorm-template/js/app.js')],
     bundle: true,
-    outfile: resolve(outDir, 'js/app.bundle.js'),
+    outfile,
     format: 'iife',
     globalName: 'BlocklyScorm',
     minify: true,
@@ -29,6 +24,31 @@ async function buildScorm() {
       'process.env.NODE_ENV': '"production"',
     },
   });
+}
+
+function copyBuilderStaticAssets(outDir) {
+  copyIfExists(resolve(SRC, 'activity-builder/index.html'), resolve(outDir, 'index.html'));
+  copyIfExists(resolve(SRC, 'activity-builder/css'), resolve(outDir, 'css'));
+}
+
+function copyPreviewStyle(outDir) {
+  copyIfExists(resolve(SRC, 'scorm-template/css/style.css'), resolve(outDir, 'preview/style.css'));
+}
+
+function writeBuilderRuntimeAssets(outDir) {
+  const appBundleJs = readFileSync(resolve(outDir, 'preview/app.bundle.js'), 'utf8');
+  const styleCss = readFileSync(resolve(outDir, 'preview/style.css'), 'utf8');
+  const script = `globalThis.__SCORM_BUILDER_ASSETS__ = ${JSON.stringify({ appBundleJs, styleCss })};\n`;
+  writeFileSync(resolve(outDir, 'runtime-assets.js'), script);
+}
+
+async function buildScorm() {
+  const outDir = resolve(DIST, 'scorm-template');
+  mkdirSync(outDir, { recursive: true });
+  mkdirSync(resolve(outDir, 'config'), { recursive: true });
+
+  // Bundle all SCORM JS (including shared modules and Blockly) into one file
+  await bundleScormApp(resolve(outDir, 'js/app.bundle.js'));
 
   // Copy static assets
   copyIfExists(resolve(SRC, 'scorm-template/index.html'), resolve(outDir, 'index.html'));
@@ -42,6 +62,7 @@ async function buildScorm() {
 async function buildBuilder() {
   const outDir = resolve(DIST, 'activity-builder');
   mkdirSync(outDir, { recursive: true });
+  mkdirSync(resolve(outDir, 'preview'), { recursive: true });
 
   // Bundle all builder JS (including shared modules and Blockly)
   await esbuild.build({
@@ -59,8 +80,10 @@ async function buildBuilder() {
   });
 
   // Copy static assets
-  copyIfExists(resolve(SRC, 'activity-builder/index.html'), resolve(outDir, 'index.html'));
-  copyIfExists(resolve(SRC, 'activity-builder/css'), resolve(outDir, 'css'));
+  copyBuilderStaticAssets(outDir);
+  await bundleScormApp(resolve(outDir, 'preview/app.bundle.js'));
+  copyPreviewStyle(outDir);
+  writeBuilderRuntimeAssets(outDir);
 
   console.log('✅ Activity builder built → dist/activity-builder/');
 }

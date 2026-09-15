@@ -88,6 +88,7 @@ Runs the student's code and compares the captured `console.log` output against a
 
 - Remember that Blockly's `text_print` adds `\n` after each print. Include trailing newlines in `expected_output` for exact matching
 - Use `prompt_inputs` when the Blockly program asks the learner for input via the text prompt block
+- `prompt_inputs` are used by automated tests; the normal **▶ Run Code** action still uses real browser prompt dialogs for the live program run
 - Prompt input matching is strict: if the program asks for more inputs than configured, or leaves configured inputs unused, the test fails explicitly
 - Use `contains` for partial checking when exact whitespace doesn't matter
 - Use `regex` when multiple valid outputs are acceptable (e.g., any 3-digit number)
@@ -103,6 +104,15 @@ Inspects the student's workspace for specific block arrangements **without execu
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `conditions` | condition object | ✅ | A condition to evaluate against the workspace. See [Condition Reference](condition-reference.md) |
+
+`block_structure` tests can use either the existing predicate conditions (`block_exists`, `block_nested`, etc.) or the newer **`block_pattern`** visual matcher for longer mixed chains/subtrees.
+
+In the authoring UI, **Visual block pattern** is now the primary option for cases that previously needed:
+- `block_connected`
+- `block_nested`
+- `block_field_value`
+
+Those older predicate types are still supported for existing configs and API-level editing, but they are treated as legacy options in the builder.
 
 ### Examples
 
@@ -131,6 +141,27 @@ Inspects the student's workspace for specific block arrangements **without execu
   },
   "points": 2,
   "feedback_on_fail": "Put the print block inside the loop body"
+}
+
+// Prompt with a specific message assigned into a variable
+{
+  "id": "test_prompt_message",
+  "type": "block_structure",
+  "conditions": {
+    "type": "block_pattern",
+    "workspace_state": { "...": "serialized Blockly pattern workspace" },
+    "field_constraints": {
+      "text_block_id": {
+        "TEXT": {
+          "expected_value": "Who.*\\?",
+          "match_mode": "regex",
+          "regex_flags": "i"
+        }
+      }
+    }
+  },
+  "points": 2,
+  "feedback_on_fail": "Use a prompt with the expected message."
 }
 
 // Complex: must use a loop AND have a variable, but NOT use break

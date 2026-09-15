@@ -4,32 +4,38 @@
 
 import { getConfig, notifyChange, onConfigChange } from './builder-app.js';
 
+let lastConfigRef = null;
+
 export function initConfigTab() {
-  const cfg = getConfig();
+  lastConfigRef = getConfig();
 
   // Bind metadata fields
   bindInput('cfg-title', (val) => {
+    const cfg = getConfig();
     cfg.metadata.title = val;
     cfg.metadata.activity_id = slugify(val);
     document.getElementById('cfg-activity-id').value = cfg.metadata.activity_id;
   });
 
-  bindInput('cfg-version', (val) => { cfg.metadata.version = val; });
-  bindInput('cfg-description', (val) => { cfg.metadata.description = val; });
+  bindInput('cfg-version', (val) => { getConfig().metadata.version = val; });
+  bindInput('cfg-description', (val) => { getConfig().metadata.description = val; });
 
   // Instructions
-  bindInput('cfg-instructions-main', (val) => { cfg.instructions.main = val; });
+  bindInput('cfg-instructions-main', (val) => { getConfig().instructions.main = val; });
   initStepsList();
 
   // UI Settings
-  bindCheckbox('cfg-show-code', (val) => { cfg.ui_settings.show_code_toggle = val; });
-  bindCheckbox('cfg-show-hints', (val) => { cfg.ui_settings.show_hint_panel = val; });
+  bindCheckbox('cfg-show-code', (val) => { getConfig().ui_settings.show_code_toggle = val; });
+  bindCheckbox('cfg-show-hints', (val) => { getConfig().ui_settings.show_hint_panel = val; });
   bindInput('cfg-max-attempts', (val) => {
-    cfg.ui_settings.max_attempts = val ? parseInt(val, 10) : null;
+    getConfig().ui_settings.max_attempts = val ? parseInt(val, 10) : null;
   });
 
-  // Listen for config changes (e.g., import)
-  onConfigChange((newCfg) => populateFromConfig(newCfg));
+  onConfigChange((newCfg) => {
+    if (newCfg === lastConfigRef) return;
+    populateFromConfig(newCfg);
+    lastConfigRef = newCfg;
+  });
 }
 
 function populateFromConfig(cfg) {
@@ -38,7 +44,7 @@ function populateFromConfig(cfg) {
   document.getElementById('cfg-version').value = cfg.metadata?.version || '1.0';
   document.getElementById('cfg-description').value = cfg.metadata?.description || '';
   document.getElementById('cfg-instructions-main').value = cfg.instructions?.main || '';
-  document.getElementById('cfg-show-code').checked = cfg.ui_settings?.show_code_toggle !== false;
+  document.getElementById('cfg-show-code').checked = cfg.ui_settings?.show_code_toggle === true;
   document.getElementById('cfg-show-hints').checked = cfg.ui_settings?.show_hint_panel !== false;
   document.getElementById('cfg-max-attempts').value = cfg.ui_settings?.max_attempts || '';
   renderSteps(cfg.instructions?.steps || []);
@@ -106,7 +112,6 @@ function slugify(text) {
 }
 
 function escapeAttr(str) {
-  return str.replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  return String(str).replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
-
 

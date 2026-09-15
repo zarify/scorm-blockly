@@ -88,6 +88,67 @@ export async function runTests(testCases, generatedCode, workspace) {
 }
 
 /**
+ * Execute student code for an interactive run.
+ * Uses the browser's real prompt() so learners/authors can supply input live.
+ * @param {string} generatedCode
+ * @returns {{ success: boolean, stdout: string, prompts: Array<{message: string, response: string | null, cancelled: boolean}>, error: string | null }}
+ */
+export function executeInteractiveRun(generatedCode) {
+  const stdout = [];
+  const promptOwner = globalThis.window || globalThis;
+  const originalConsoleLog = console.log;
+  const originalPrompt = globalThis.prompt;
+  const originalWindowPrompt = promptOwner.prompt;
+  const nativePrompt =
+    typeof originalWindowPrompt === 'function'
+      ? originalWindowPrompt.bind(promptOwner)
+      : typeof originalPrompt === 'function'
+        ? originalPrompt.bind(globalThis)
+        : null;
+  const promptLog = [];
+
+  console.log = (...args) => stdout.push(args.map(String).join(' '));
+
+  const promptImpl = (message, defaultValue = '') => {
+    const normalizedMessage = String(message ?? '');
+    const normalizedDefault = defaultValue == null ? '' : String(defaultValue);
+    const response = nativePrompt ? nativePrompt(normalizedMessage, normalizedDefault) : normalizedDefault;
+
+    promptLog.push({
+      message: normalizedMessage,
+      response: response == null ? null : String(response),
+      cancelled: response == null,
+    });
+
+    return response;
+  };
+
+  globalThis.prompt = promptImpl;
+  promptOwner.prompt = promptImpl;
+
+  try {
+    new Function(generatedCode)();
+    return {
+      success: true,
+      stdout: stdout.join('\n') + (stdout.length > 0 ? '\n' : ''),
+      prompts: promptLog,
+      error: null,
+    };
+  } catch (err) {
+    return {
+      success: false,
+      stdout: stdout.join('\n') + (stdout.length > 0 ? '\n' : ''),
+      prompts: promptLog,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  } finally {
+    console.log = originalConsoleLog;
+    globalThis.prompt = originalPrompt;
+    promptOwner.prompt = originalWindowPrompt;
+  }
+}
+
+/**
  * Execute code in a sandboxed environment with timeout.
  * Uses a Web Worker if available, falls back to Function constructor.
  */
