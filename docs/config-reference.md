@@ -201,6 +201,8 @@ Each hint object:
 }
 ```
 
+For longer mixed chains/subtrees, `trigger.conditions` can also be a `block_pattern` condition built visually in the authoring UI and stored as a serialized pattern workspace plus optional field constraints.
+
 ---
 
 ## `evaluation` (required)

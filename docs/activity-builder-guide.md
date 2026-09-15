@@ -151,6 +151,7 @@ Create contextual hints that appear as students work. See [Hint System](hint-sys
 4. If using `workspace_change`, build a **condition** (see [Condition Reference](condition-reference.md))
    - For nested structures, **Outer block input name** refers to the parent block input where the whole subtree is plugged in
    - You can optionally add a **matched descendant field/value** constraint to keep the value check scoped to that nested subtree
+   - For more complex shapes, choose **Visual block pattern** and build the match with real Blockly blocks plus wildcard pattern blocks
 5. Set optional timing:
    - **Priority** — Higher priority hints suppress lower ones
    - **Delay** — Seconds before the hint appears after condition is met
@@ -169,6 +170,20 @@ A good hint sequence escalates from vague to specific:
 
 Use `delay_seconds` on early hints to avoid showing them before the student has had a chance to try.
 Workspace-change hints are evaluated automatically after Blockly edits, and delayed hints now appear once the delay elapses even if the student stops dragging blocks.
+
+### Visual Block Patterns
+
+For conditions that are awkward to express with simple predicates, use **Visual block pattern**:
+
+- Build a pattern with real Blockly blocks in the pattern workspace
+- Add **any block(s)** to match gaps in a statement chain
+- Add **any value** to match any value subtree
+- Select a block in the pattern workspace to add optional exact/regex field constraints
+
+This is the recommended approach for patterns such as:
+- `set variable -> prompt -> text("Who's there?")`
+- `print` anywhere inside a loop body
+- longer mixed chains that combine `next` links and nested inputs
 
 ---
 

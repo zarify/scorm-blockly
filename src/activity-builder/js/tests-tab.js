@@ -3,11 +3,13 @@
  */
 
 import { getConfig, notifyChange, onConfigChange, Blockly } from './builder-app.js';
+import { BLOCK_PATTERN_TYPE } from '../../shared/block-pattern.js';
 import {
   createConditionSuggestionIds,
   getConditionBlockDefinitionMetadata,
   getSuggestedConditionBlockTypes,
 } from './condition-suggestions.js';
+import { renderPatternBuilder } from './pattern-builder.js';
 import {
   formatPromptInputs,
   getPromptInputs,
@@ -303,6 +305,7 @@ function renderConditionBuilder(container, condition, onChange) {
     { value: 'block_missing', label: 'Block missing' },
     { value: 'block_connected', label: 'Blocks connected' },
     { value: 'block_nested', label: 'Block inside another block input subtree' },
+    { value: BLOCK_PATTERN_TYPE, label: 'Visual block pattern' },
     { value: 'block_field_value', label: 'Field matches value/pattern' },
     { value: 'block_count', label: 'Block count' },
     { value: 'workspace_empty', label: 'Workspace empty' },
@@ -325,6 +328,9 @@ function renderConditionBuilder(container, condition, onChange) {
     const newCond = { type: e.target.value };
     if (['all', 'any', 'none'].includes(newCond.type)) {
       newCond.conditions = [{ type: 'workspace_empty' }];
+    } else if (newCond.type === BLOCK_PATTERN_TYPE) {
+      newCond.workspace_state = null;
+      newCond.field_constraints = {};
     }
     onChange(newCond, { rerenderBuilder: true });
   });
@@ -397,6 +403,9 @@ function renderSimpleConditionFields(container, condition, onChange) {
         ${innerBlockMetadata.fieldNames.length > 0 ? `<small>Fields on ${escapeHtml(condition.inner_type || 'this block')}: ${innerBlockMetadata.fieldNames.join(', ')}</small>` : ''}
       `;
       break;
+    case BLOCK_PATTERN_TYPE:
+      html = '<div class="pattern-builder-mount"></div>';
+      break;
     case 'block_field_value':
       html = `
         <datalist id="${datalistIds.blockTypes}">${blockTypeOptions}</datalist>
@@ -432,6 +441,16 @@ function renderSimpleConditionFields(container, condition, onChange) {
   }
 
   container.innerHTML = html;
+
+  if (condition.type === BLOCK_PATTERN_TYPE) {
+    const patternContainer = container.querySelector('.pattern-builder-mount');
+    if (patternContainer) {
+      renderPatternBuilder(patternContainer, condition, (nextCondition) => {
+        onChange(nextCondition, { rerenderBuilder: false });
+      });
+    }
+    return;
+  }
 
   bind('.cond-bt', 'block_type', undefined, {
     event: condition.type === 'block_field_value' ? 'change' : undefined,

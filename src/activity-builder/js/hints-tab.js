@@ -3,11 +3,13 @@
  */
 
 import { getConfig, notifyChange, onConfigChange, Blockly } from './builder-app.js';
+import { BLOCK_PATTERN_TYPE } from '../../shared/block-pattern.js';
 import {
   createConditionSuggestionIds,
   getConditionBlockDefinitionMetadata,
   getSuggestedConditionBlockTypes,
 } from './condition-suggestions.js';
+import { renderPatternBuilder } from './pattern-builder.js';
 
 let selectedHintIndex = -1;
 let lastConfigRef = null;
@@ -17,6 +19,7 @@ const CONDITION_TYPES = [
   { value: 'block_missing', label: 'Block missing' },
   { value: 'block_connected', label: 'Blocks connected (sequential)' },
   { value: 'block_nested', label: 'Block inside another block input subtree' },
+  { value: BLOCK_PATTERN_TYPE, label: 'Visual block pattern' },
   { value: 'block_field_value', label: 'Block field matches value/pattern' },
   { value: 'block_count', label: 'Block count in range' },
   { value: 'workspace_empty', label: 'Workspace is empty' },
@@ -210,6 +213,9 @@ function renderConditionBuilder(container, condition, onChange) {
     const newCondition = { type: newType };
     if (['all', 'any', 'none'].includes(newType)) {
       newCondition.conditions = [{ type: 'workspace_empty' }];
+    } else if (newType === BLOCK_PATTERN_TYPE) {
+      newCondition.workspace_state = null;
+      newCondition.field_constraints = {};
     }
     onChange(newCondition);
     renderConditionBuilder(container, newCondition, onChange);
@@ -321,6 +327,10 @@ function renderConditionFields(container, condition, onChange) {
       `;
       break;
 
+    case BLOCK_PATTERN_TYPE:
+      html = '<div class="pattern-builder-mount"></div>';
+      break;
+
     case 'block_field_value':
       html = `
         <datalist id="${datalistIds.blockTypes}">${blockTypeOptions}</datalist>
@@ -390,6 +400,14 @@ function renderConditionFields(container, condition, onChange) {
   }
 
   container.innerHTML = html;
+
+  if (condition.type === BLOCK_PATTERN_TYPE) {
+    const patternContainer = container.querySelector('.pattern-builder-mount');
+    if (patternContainer) {
+      renderPatternBuilder(patternContainer, condition, onChange);
+    }
+    return;
+  }
 
   // Bind fields based on type
   bindConditionInputs(container, condition, onChange);

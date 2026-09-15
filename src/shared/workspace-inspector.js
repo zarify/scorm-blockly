@@ -1,4 +1,13 @@
 import * as Blockly from 'blockly';
+import {
+  BLOCK_PATTERN_TYPE,
+  isPatternStatementWildcard,
+  isPatternValueWildcard,
+  registerBlockPatternBlocks,
+} from './block-pattern.js';
+import { getComparableFieldValue } from './blockly-field-values.js';
+
+registerBlockPatternBlocks(Blockly);
 
 /**
  * Workspace Inspector — Evaluates structural conditions on a Blockly workspace.
@@ -22,6 +31,7 @@ export function evaluateCondition(workspace, condition) {
     block_missing: evalBlockMissing,
     block_connected: evalBlockConnected,
     block_nested: evalBlockNested,
+    [BLOCK_PATTERN_TYPE]: evalBlockPattern,
     block_field_value: evalBlockFieldValue,
     block_count: evalBlockCount,
     workspace_empty: evalWorkspaceEmpty,
@@ -118,7 +128,7 @@ function evalBlockNested(workspace, condition) {
     }
 
     const matchingBlock = matchingDescendants.find((block) => {
-      const value = block.getFieldValue?.(descendantFieldName);
+      const value = getComparableFieldValue(block, descendantFieldName);
       return value !== null && value !== undefined && descendantMatcher.matches(String(value));
     });
     if (matchingBlock) {
@@ -184,7 +194,7 @@ function evalBlockFieldValue(workspace, condition) {
   }
 
   for (const block of blocks) {
-    const value = block.getFieldValue(condition.field_name);
+    const value = getComparableFieldValue(block, condition.field_name);
     if (value !== null && matcher.matches(String(value))) {
       return {
         passed: true,
@@ -196,6 +206,54 @@ function evalBlockFieldValue(workspace, condition) {
     passed: false,
     detail: `No ${condition.block_type} block has ${condition.field_name} ${matcher.description}`,
   };
+}
+
+function evalBlockPattern(workspace, condition) {
+  if (!condition.workspace_state || typeof condition.workspace_state !== 'object') {
+    return {
+      passed: false,
+      detail: 'Pattern workspace is missing',
+    };
+  }
+
+  const patternWorkspace = new Blockly.Workspace();
+  try {
+    Blockly.serialization.workspaces.load(condition.workspace_state, patternWorkspace);
+    const roots = patternWorkspace.getTopBlocks(false);
+    if (roots.length !== 1) {
+      return {
+        passed: false,
+        detail: `Pattern workspace must have exactly one root block, found ${roots.length}`,
+      };
+    }
+
+    const patternRoot = roots[0];
+    const fieldConstraints = condition.field_constraints || {};
+    const candidates = workspace.getAllBlocks(false);
+
+    for (const candidate of candidates) {
+      if (matchPatternChain(patternRoot, candidate, fieldConstraints)) {
+        return {
+          passed: true,
+          detail: `Pattern rooted at ${patternRoot.type} matched workspace block ${candidate.type}`,
+        };
+      }
+    }
+
+    return {
+      passed: false,
+      detail: `No workspace block matched the pattern rooted at ${patternRoot.type}`,
+    };
+  } catch (err) {
+    return {
+      passed: false,
+      detail: `Pattern workspace could not be loaded: ${err.message}`,
+    };
+  } finally {
+    if (typeof patternWorkspace.dispose === 'function') {
+      patternWorkspace.dispose();
+    }
+  }
 }
 
 function evalBlockCount(workspace, condition) {
@@ -243,6 +301,89 @@ function evalNone(workspace, condition) {
     passed,
     detail: `NONE: ${results.filter((r) => !r.passed).length}/${results.length} failed (good)`,
   };
+}
+
+function matchPatternChain(patternBlock, actualBlock, fieldConstraints) {
+  if (!patternBlock) return true;
+
+  if (isPatternStatementWildcard(patternBlock)) {
+    const nextPattern = patternBlock.getNextBlock();
+    if (!nextPattern) return true;
+
+    let cursor = actualBlock;
+    if (matchPatternChain(nextPattern, cursor, fieldConstraints)) {
+      return true;
+    }
+
+    while (cursor) {
+      cursor = cursor.getNextBlock?.() || null;
+      if (matchPatternChain(nextPattern, cursor, fieldConstraints)) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  if (!actualBlock) return false;
+  if (!matchPatternBlock(patternBlock, actualBlock, fieldConstraints)) {
+    return false;
+  }
+
+  return matchPatternChain(
+    patternBlock.getNextBlock?.() || null,
+    actualBlock.getNextBlock?.() || null,
+    fieldConstraints,
+  );
+}
+
+function matchPatternBlock(patternBlock, actualBlock, fieldConstraints) {
+  if (isPatternValueWildcard(patternBlock)) {
+    return Boolean(actualBlock);
+  }
+
+  if (patternBlock.type !== actualBlock.type) {
+    return false;
+  }
+
+  const constraints = fieldConstraints?.[patternBlock.id] || {};
+  for (const [fieldName, constraint] of Object.entries(constraints)) {
+    const value = getComparableFieldValue(actualBlock, fieldName);
+    if (value === null || value === undefined) {
+      return false;
+    }
+
+    const matcher = createFieldValueMatcher(
+      constraint.match_mode || 'exact',
+      String(constraint.expected_value ?? ''),
+      constraint.regex_flags || '',
+    );
+    if (!matcher.valid || !matcher.matches(String(value))) {
+      return false;
+    }
+  }
+
+  for (const patternInput of patternBlock.inputList || []) {
+    const patternChild = patternInput.connection?.targetBlock?.();
+    if (!patternChild) continue;
+
+    const actualInput = actualBlock.getInput(patternInput.name);
+    const actualChild = actualInput?.connection?.targetBlock?.() || null;
+    if (!actualChild) {
+      return false;
+    }
+
+    const isStatementInput = Boolean(patternChild.previousConnection && !patternChild.outputConnection);
+    const matches = isStatementInput
+      ? matchPatternChain(patternChild, actualChild, fieldConstraints)
+      : matchPatternBlock(patternChild, actualChild, fieldConstraints);
+
+    if (!matches) {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function createFieldValueMatcher(matchMode, expectedValue, regexFlags) {

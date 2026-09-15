@@ -105,6 +105,8 @@ Inspects the student's workspace for specific block arrangements **without execu
 |-------|------|----------|-------------|
 | `conditions` | condition object | ✅ | A condition to evaluate against the workspace. See [Condition Reference](condition-reference.md) |
 
+`block_structure` tests can use either the existing predicate conditions (`block_exists`, `block_nested`, etc.) or the newer **`block_pattern`** visual matcher for longer mixed chains/subtrees.
+
 ### Examples
 
 ```json
@@ -132,6 +134,27 @@ Inspects the student's workspace for specific block arrangements **without execu
   },
   "points": 2,
   "feedback_on_fail": "Put the print block inside the loop body"
+}
+
+// Prompt with a specific message assigned into a variable
+{
+  "id": "test_prompt_message",
+  "type": "block_structure",
+  "conditions": {
+    "type": "block_pattern",
+    "workspace_state": { "...": "serialized Blockly pattern workspace" },
+    "field_constraints": {
+      "text_block_id": {
+        "TEXT": {
+          "expected_value": "Who.*\\?",
+          "match_mode": "regex",
+          "regex_flags": "i"
+        }
+      }
+    }
+  },
+  "points": 2,
+  "feedback_on_fail": "Use a prompt with the expected message."
 }
 
 // Complex: must use a loop AND have a variable, but NOT use break

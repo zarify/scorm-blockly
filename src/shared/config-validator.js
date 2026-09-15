@@ -1,4 +1,6 @@
+import * as Blockly from 'blockly';
 import { getTestPoints } from './test-config.js';
+import { BLOCK_PATTERN_TYPE, registerBlockPatternBlocks } from './block-pattern.js';
 
 export const VALID_TEST_TYPES = ['stdout_match', 'block_structure', 'variable_state'];
 export const VALID_STDOUT_MATCH_MODES = ['exact', 'contains', 'regex'];
@@ -6,9 +8,11 @@ export const VALID_VARIABLE_COMPARISONS = ['equals', 'gt', 'lt', 'gte', 'lte', '
 export const VALID_FIELD_VALUE_MATCH_MODES = ['exact', 'regex'];
 export const VALID_CONDITION_TYPES = [
   'block_exists', 'block_missing', 'block_connected', 'block_nested',
-  'block_field_value', 'block_count', 'workspace_empty', 'all', 'any', 'none',
+  'block_field_value', 'block_count', 'workspace_empty', 'all', 'any', 'none', BLOCK_PATTERN_TYPE,
 ];
 export const VALID_HINT_EVENTS = ['workspace_change', 'test_fail', 'manual', 'timed'];
+
+registerBlockPatternBlocks(Blockly);
 
 /**
  * Config Validator — Validates activity_config objects against the JSON Schema.
@@ -342,6 +346,8 @@ function validateCondition(condition, path, errors) {
         });
       }
     }
+  } else if (condition.type === BLOCK_PATTERN_TYPE) {
+    validateBlockPatternCondition(condition, path, errors);
   } else if (condition.type === 'block_count') {
     validateRequiredString(condition, 'block_type', errors, path);
   } else if (['all', 'any', 'none'].includes(condition.type)) {
@@ -369,22 +375,142 @@ function validateHint(hint, index, errors) {
       validateCondition(hint.trigger.conditions, `${prefix}.trigger.conditions`, errors);
     }
   }
+}
 
-  function isValidRegexFlags(flags) {
-    try {
-      new RegExp('', flags);
-      return new Set(flags.split('')).size === flags.length;
-    } catch {
-      return false;
-    }
+function isValidRegexFlags(flags) {
+  try {
+    new RegExp('', flags);
+    return new Set(flags.split('')).size === flags.length;
+  } catch {
+    return false;
+  }
+}
+
+function hasNestedScopedValueConstraint(condition) {
+  return (
+    String(condition.field_name ?? '').trim() !== ''
+    || condition.expected_value !== undefined
+    || condition.match_mode === 'regex'
+    || String(condition.regex_flags ?? '') !== ''
+  );
+}
+
+function validateBlockPatternCondition(condition, path, errors) {
+  if (!condition.workspace_state || typeof condition.workspace_state !== 'object') {
+    errors.push({
+      path: `${path}.workspace_state`,
+      message: 'Pattern condition requires a saved pattern workspace',
+    });
+    return;
   }
 
-  function hasNestedScopedValueConstraint(condition) {
-    return (
-      String(condition.field_name ?? '').trim() !== ''
-      || condition.expected_value !== undefined
-      || condition.match_mode === 'regex'
-      || String(condition.regex_flags ?? '') !== ''
-    );
+  if (
+    condition.field_constraints !== undefined
+    && (!condition.field_constraints || typeof condition.field_constraints !== 'object' || Array.isArray(condition.field_constraints))
+  ) {
+    errors.push({
+      path: `${path}.field_constraints`,
+      message: 'Must be an object keyed by pattern block id',
+    });
+    return;
+  }
+
+  const patternWorkspace = new Blockly.Workspace();
+  try {
+    try {
+      Blockly.serialization.workspaces.load(condition.workspace_state, patternWorkspace);
+    } catch (err) {
+      errors.push({
+        path: `${path}.workspace_state`,
+        message: `Pattern workspace could not be loaded: ${err.message}`,
+      });
+      return;
+    }
+
+    const topBlocks = patternWorkspace.getTopBlocks(false);
+    if (topBlocks.length === 0) {
+      errors.push({
+        path: `${path}.workspace_state`,
+        message: 'Pattern workspace must contain at least one block',
+      });
+    } else if (topBlocks.length > 1) {
+      errors.push({
+        path: `${path}.workspace_state`,
+        message: 'Pattern workspace must have exactly one root block',
+      });
+    }
+
+    for (const [blockId, fields] of Object.entries(condition.field_constraints || {})) {
+      const block = patternWorkspace.getBlockById(blockId);
+      if (!block) {
+        errors.push({
+          path: `${path}.field_constraints.${blockId}`,
+          message: 'Constraint references a block that is not in the pattern workspace',
+        });
+        continue;
+      }
+
+      if (!fields || typeof fields !== 'object' || Array.isArray(fields)) {
+        errors.push({
+          path: `${path}.field_constraints.${blockId}`,
+          message: 'Block constraints must be an object keyed by field name',
+        });
+        continue;
+      }
+
+      for (const [fieldName, constraint] of Object.entries(fields)) {
+        const fieldPath = `${path}.field_constraints.${blockId}.${fieldName}`;
+        if (!constraint || typeof constraint !== 'object' || Array.isArray(constraint)) {
+          errors.push({ path: fieldPath, message: 'Field constraint must be an object' });
+          continue;
+        }
+
+        if (!block.getField(fieldName)) {
+          errors.push({
+            path: fieldPath,
+            message: `Field "${fieldName}" is not present on block type ${block.type}`,
+          });
+        }
+
+        if (
+          constraint.match_mode !== undefined
+          && !VALID_FIELD_VALUE_MATCH_MODES.includes(constraint.match_mode)
+        ) {
+          errors.push({
+            path: `${fieldPath}.match_mode`,
+            message: `Must be one of: ${VALID_FIELD_VALUE_MATCH_MODES.join(', ')}`,
+          });
+        }
+
+        if (constraint.regex_flags !== undefined) {
+          if (typeof constraint.regex_flags !== 'string') {
+            errors.push({ path: `${fieldPath}.regex_flags`, message: 'Must be a string' });
+          } else if (!isValidRegexFlags(constraint.regex_flags)) {
+            errors.push({
+              path: `${fieldPath}.regex_flags`,
+              message: 'Must use valid JavaScript regex flags without duplicates',
+            });
+          }
+        }
+
+        if ((constraint.match_mode || 'exact') === 'regex') {
+          try {
+            new RegExp(
+              `^(?:${String(constraint.expected_value ?? '')})$`,
+              constraint.regex_flags || '',
+            );
+          } catch (err) {
+            errors.push({
+              path: `${fieldPath}.expected_value`,
+              message: `Invalid regex pattern: ${err.message}`,
+            });
+          }
+        }
+      }
+    }
+  } finally {
+    if (typeof patternWorkspace.dispose === 'function') {
+      patternWorkspace.dispose();
+    }
   }
 }

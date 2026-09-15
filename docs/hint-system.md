@@ -48,7 +48,7 @@ Each hint is an object in the `hints` array:
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `event` | string | ✅ | — | `"workspace_change"`, `"test_fail"`, `"manual"`, or `"timed"` |
-| `conditions` | condition | No | — | Workspace condition that must be true. See [Condition Reference](condition-reference.md) |
+| `conditions` | condition | No | — | Workspace condition that must be true. This can be a simple predicate or a visual `block_pattern`. See [Condition Reference](condition-reference.md) |
 | `after_attempts` | integer | No | `0` | Only show after this many failed test runs |
 
 ---

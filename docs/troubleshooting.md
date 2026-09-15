@@ -178,6 +178,16 @@ console.log(block.inputList.map(i => i.name));
 
 If you also fill in the optional descendant field/value controls, that value match is scoped to the matching descendants found in that subtree rather than unrelated blocks elsewhere in the workspace.
 
+### `block_pattern` condition not matching
+
+Check these first:
+
+1. **Single root block** — the pattern workspace must have exactly one top-level root block
+2. **Wildcard choice** — use **any block(s)** only for statement chains, and **any value** only for value inputs
+3. **Scoped field constraints** — field constraints are tied to the selected pattern block, not applied workspace-wide
+4. **Regex mode** — regex field constraints are full matches, not substring searches
+5. **Structure direction** — nested inputs and vertical `next` chains must be connected in the pattern exactly the way you want them matched
+
 ### `block_field_value` not matching
 
 Remember that comparison is **string-based** in exact mode, or a **full regex match** in regex mode. Common pitfalls:
@@ -197,6 +207,8 @@ Both sides are converted to strings via `String()` in exact mode, so `3` and `"3
 3. That the block type is correct
 4. Whether regex mode is enabled when you meant to use an exact value
 5. Whether your regex needs flags like `i` for case-insensitive matching
+
+For Blockly variable dropdown fields like `VAR`, the matcher uses the **variable name** shown in the block, not Blockly's generated internal variable id.
 
 Regex mode uses a full match, not a substring search. For example:
 

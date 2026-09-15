@@ -205,6 +205,14 @@
         },
         {
           "properties": {
+            "type": { "const": "block_pattern" },
+            "workspace_state": { "type": "object" },
+            "field_constraints": { "type": "object", "default": {} }
+          },
+          "required": ["type", "workspace_state"]
+        },
+        {
+          "properties": {
             "type": { "const": "block_field_value" },
             "block_type": { "type": "string" },
             "field_name": { "type": "string" },
