@@ -17,16 +17,19 @@ let lastConfigRef = null;
 const CONDITION_TYPES = [
   { value: 'block_exists', label: 'Block exists' },
   { value: 'block_missing', label: 'Block missing' },
-  { value: 'block_connected', label: 'Blocks connected (sequential)' },
-  { value: 'block_nested', label: 'Block inside another block input subtree' },
   { value: BLOCK_PATTERN_TYPE, label: 'Visual block pattern' },
-  { value: 'block_field_value', label: 'Block field matches value/pattern' },
   { value: 'block_count', label: 'Block count in range' },
   { value: 'workspace_empty', label: 'Workspace is empty' },
   { value: 'all', label: 'ALL conditions (AND)' },
   { value: 'any', label: 'ANY condition (OR)' },
   { value: 'none', label: 'NONE of conditions (NOT)' },
 ];
+
+const LEGACY_CONDITION_TYPES = {
+  block_connected: 'Blocks connected (sequential) — legacy',
+  block_nested: 'Block inside another block input subtree — legacy',
+  block_field_value: 'Block field matches value/pattern — legacy',
+};
 
 const TRIGGER_EVENTS = [
   { value: 'workspace_change', label: 'Workspace changes' },
@@ -196,7 +199,7 @@ function renderConditionBuilder(container, condition, onChange) {
     <div class="condition-builder">
       <div class="condition-row">
         <select class="condition-type-select">
-          ${CONDITION_TYPES.map((ct) => `<option value="${ct.value}" ${condition.type === ct.value ? 'selected' : ''}>${ct.label}</option>`).join('')}
+          ${getConditionTypeOptions(condition.type).map((ct) => `<option value="${ct.value}" ${condition.type === ct.value ? 'selected' : ''}>${ct.label}</option>`).join('')}
         </select>
       </div>
       <div class="condition-fields"></div>
@@ -216,6 +219,16 @@ function renderConditionBuilder(container, condition, onChange) {
     } else if (newType === BLOCK_PATTERN_TYPE) {
       newCondition.workspace_state = null;
       newCondition.field_constraints = {};
+    }
+
+    function getConditionTypeOptions(currentType) {
+      if (currentType && !(currentType in LEGACY_CONDITION_TYPES)) {
+        return CONDITION_TYPES;
+      }
+      if (!currentType || CONDITION_TYPES.some((type) => type.value === currentType)) {
+        return CONDITION_TYPES;
+      }
+      return [...CONDITION_TYPES, { value: currentType, label: LEGACY_CONDITION_TYPES[currentType] || `${currentType} — legacy` }];
     }
     onChange(newCondition);
     renderConditionBuilder(container, newCondition, onChange);

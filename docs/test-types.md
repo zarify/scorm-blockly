@@ -107,6 +107,13 @@ Inspects the student's workspace for specific block arrangements **without execu
 
 `block_structure` tests can use either the existing predicate conditions (`block_exists`, `block_nested`, etc.) or the newer **`block_pattern`** visual matcher for longer mixed chains/subtrees.
 
+In the authoring UI, **Visual block pattern** is now the primary option for cases that previously needed:
+- `block_connected`
+- `block_nested`
+- `block_field_value`
+
+Those older predicate types are still supported for existing configs and API-level editing, but they are treated as legacy options in the builder.
+
 ### Examples
 
 ```json

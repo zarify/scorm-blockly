@@ -303,10 +303,7 @@ function renderConditionBuilder(container, condition, onChange) {
   const CONDITION_TYPES = [
     { value: 'block_exists', label: 'Block exists' },
     { value: 'block_missing', label: 'Block missing' },
-    { value: 'block_connected', label: 'Blocks connected' },
-    { value: 'block_nested', label: 'Block inside another block input subtree' },
     { value: BLOCK_PATTERN_TYPE, label: 'Visual block pattern' },
-    { value: 'block_field_value', label: 'Field matches value/pattern' },
     { value: 'block_count', label: 'Block count' },
     { value: 'workspace_empty', label: 'Workspace empty' },
     { value: 'all', label: 'ALL (AND)' },
@@ -314,10 +311,16 @@ function renderConditionBuilder(container, condition, onChange) {
     { value: 'none', label: 'NONE (NOT)' },
   ];
 
+  const LEGACY_CONDITION_TYPES = {
+    block_connected: 'Blocks connected — legacy',
+    block_nested: 'Block inside another block input subtree — legacy',
+    block_field_value: 'Field matches value/pattern — legacy',
+  };
+
   container.innerHTML = `
     <div class="condition-builder">
       <select class="condition-type-select">
-        ${CONDITION_TYPES.map((ct) => `<option value="${ct.value}" ${condition.type === ct.value ? 'selected' : ''}>${ct.label}</option>`).join('')}
+        ${getConditionTypeOptions(CONDITION_TYPES, LEGACY_CONDITION_TYPES, condition.type).map((ct) => `<option value="${ct.value}" ${condition.type === ct.value ? 'selected' : ''}>${ct.label}</option>`).join('')}
       </select>
       <div class="condition-fields" style="margin-top:8px"></div>
     </div>
@@ -535,4 +538,14 @@ function escapeHtml(str) {
 
 function escapeAttr(str) {
   return String(str).replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+function getConditionTypeOptions(conditionTypes, legacyConditionTypes, currentType) {
+  if (!currentType || conditionTypes.some((type) => type.value === currentType)) {
+    return conditionTypes;
+  }
+  return [
+    ...conditionTypes,
+    { value: currentType, label: legacyConditionTypes[currentType] || `${currentType} — legacy` },
+  ];
 }

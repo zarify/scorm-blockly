@@ -96,12 +96,14 @@ Tests award integer **points** rather than percentages, and execution-based test
 
 Conditions inspect the Blockly workspace and support:
 - `block_exists` / `block_missing` — Check if a block type is present
+- `block_pattern` — Visual pattern workspace for arbitrary mixed sequences/subtrees with wildcard blocks
 - `block_connected` — Two blocks are connected sequentially
 - `block_nested` — Block appears somewhere inside another block's input subtree, optionally with a scoped descendant field/value constraint
-- `block_pattern` — Visual pattern workspace for arbitrary mixed sequences/subtrees with wildcard blocks
 - `block_field_value` — Block field has a specific value
 - `block_count` — Count of a block type within a range
 - `all` / `any` / `none` — Composite logic (AND / OR / NOT)
+
+In the builder UI, `block_pattern` is now the preferred authoring path for connected/nested/value-matching structures; the older `block_connected`, `block_nested`, and `block_field_value` matchers remain supported mainly for backward compatibility.
 
 ## Architecture
 

@@ -180,6 +180,13 @@ For conditions that are awkward to express with simple predicates, use **Visual 
 - Add **any value** to match any value subtree
 - Select a block in the pattern workspace to add optional exact/regex field constraints
 
+The authoring UI now treats **Visual block pattern** as the primary way to express:
+- sequential block connections
+- nested block-subtree checks
+- block field/value matching within a structure
+
+Older configs using those individual predicate types still load and remain editable as **legacy** options.
+
 This is the recommended approach for patterns such as:
 - `set variable -> prompt -> text("Who's there?")`
 - `print` anywhere inside a loop body
