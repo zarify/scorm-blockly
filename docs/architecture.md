@@ -124,10 +124,12 @@ app.js init()
   ├── hint-engine.initHintEngine()
   │   ├── Store hints config and workspace reference
   │   ├── Initialise hint state
+  │   ├── Render checklist-style hints immediately (if any)
   │   └── workspace.addChangeListener() → debounced evaluation
   │
   └── Attach event handlers
-      ├── btn-run → runTests() → reportScore() → updateUI()
+      ├── btn-run → executeInteractiveRun() → updateUI()
+      ├── btn-check → runTests() → reportScore() → updateUI()
       ├── btn-reset → clearWorkspace()
       ├── btn-code-toggle → show/hide generated JS
       └── beforeunload → scorm.terminate()
@@ -136,7 +138,7 @@ app.js init()
 ### Code Execution Pipeline
 
 ```
-Student clicks "Run Code"
+Student clicks "Check"
   │
   ├── blockly-engine.generateCode()
   │   ├── Blockly JavaScript generator
@@ -171,8 +173,8 @@ Student clicks "Run Code"
   │   ├── Each test → pass/fail indicator + feedback
   │   └── Overall score display
   │
-  └── hint-engine.onTestComplete(passed, attemptCount)
-      └── If failed → evaluate hints with 'test_fail' event
+  └── hint-engine.onTestFail(failedCheckCount)
+      └── Evaluate hints with 'test_fail' event
 ```
 
 ### Web Worker Communication

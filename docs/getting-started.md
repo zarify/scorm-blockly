@@ -110,11 +110,11 @@ See [SCORM Deployment](scorm-deployment.md) for detailed Moodle configuration.
 
 Open the activity as a student would. You should see:
 
-- **Left panel**: Instructions and hints
+- **Left panel**: Instructions plus any checklist-style hints, with triggered hints appearing there as students unlock them
 - **Centre**: Blockly workspace with your configured toolbox
-- **Right panel**: Output and generated code (if enabled)
+- **Results modal**: Run output or check results when opened
 
-Click **▶ Run Code** to execute and see test results.
+Click **▶ Run Code** to execute the learner program, or **✓ Check** to run the automated tests.
 
 ## Available Commands
 

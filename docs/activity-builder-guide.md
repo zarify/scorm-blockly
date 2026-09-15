@@ -53,7 +53,7 @@ Set the activity metadata, student instructions, and UI settings.
 | Setting | Default | Description |
 |---------|---------|-------------|
 | **Show code toggle** | Off | Let students open the generated JavaScript code modal |
-| **Show hint panel** | ✅ On | Display the hints panel in the student UI |
+| **Enable hints** | ✅ On | Enable student-facing hints in the runtime |
 | **Max attempts** | Unlimited | ⚠️ Not yet enforced at runtime. The field is in the schema for future use |
 
 ---
@@ -148,11 +148,15 @@ Create contextual hints that appear as students work. See [Hint System](hint-sys
    - **manual** — When manually requested with the **💡 Get Hint** button
    - **timed** — After a time delay (⚠️ not yet implemented at runtime)
 3. Write the **message** shown to the student
-4. If using `workspace_change`, build a **condition** (see [Condition Reference](condition-reference.md))
+4. Choose the **display mode**:
+   - **Hidden until triggered** — The hint stays hidden until it fires
+   - **Always visible checklist item** — The hint stays in the sidebar and ticks off once triggered
+   - Checklist items work best for completion milestones such as “loop added” or “pattern matched”
+5. If using `workspace_change`, build a **condition** (see [Condition Reference](condition-reference.md))
    - For nested structures, **Outer block input name** refers to the parent block input where the whole subtree is plugged in
    - You can optionally add a **matched descendant field/value** constraint to keep the value check scoped to that nested subtree
    - For more complex shapes, choose **Visual block pattern** and build the match with real Blockly blocks plus wildcard pattern blocks
-5. Set optional timing:
+6. Set optional timing:
    - **Priority** — Higher priority hints suppress lower ones
    - **Delay** — Seconds before the hint appears after condition is met
    - **After N fails** — Only show after this many failed test runs
@@ -243,16 +247,16 @@ Run the full student runtime with your current config before exporting.
 - The real Blockly workspace and restricted student toolbox
 - Starter blocks saved from the **Workspace** tab
 - Live program execution via **▶ Run Code**, including real `prompt()` dialogs and printed output
-- Automated test execution and scoring after each run
-- Manual and automatic hints via **💡 Get Hint** and failed runs
+- Automated test execution and scoring via **✓ Check**
+- Manual and automatic hints via **💡 Get Hint** and failed checks
 - Generated JavaScript via **{ } Show Code**
 
 Click **Reload Preview** to restart the student runtime with your latest config.
 
 > **Note**: The preview uses the same client-side runtime as the exported package, but it still runs without an LMS connection. SCORM score reporting is simulated locally.
 
-When you click **▶ Run Code**, the activity first executes the learner program normally, then runs the configured automated checks. If the program uses input blocks, the preview uses real browser prompt dialogs for the live run, while tests still use each test case's configured `prompt_inputs`.
-Run results open in a modal so the Blockly workspace keeps the full horizontal space until needed.
+When you click **▶ Run Code**, the activity executes the learner program normally with real browser prompt dialogs. When you click **✓ Check**, it runs the configured automated checks and scores the result using each test case's `prompt_inputs`.
+Run and check results open in a modal so the Blockly workspace keeps the full horizontal space until needed.
 
 ---
 

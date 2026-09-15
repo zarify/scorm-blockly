@@ -135,7 +135,7 @@ Common differences between local preview and Moodle:
 1. **Check `show_hint_panel`** — Must be `true` (or omitted, defaults to true) in `ui_settings`
 2. **Check trigger event** — Make sure the event matches what the student is doing:
    - `workspace_change` fires after meaningful Blockly edits such as moving, adding, deleting, or changing block fields
-   - `test_fail` only fires after clicking "Run Code" and failing
+   - `test_fail` only fires after clicking "Check" and failing
 3. **Check delay** — If `delay_seconds` is set, wait that long after the condition becomes true; the hint should now appear automatically once the delay elapses
 4. **Check condition** — The condition must evaluate to true. Test with simple conditions first (e.g., `workspace_empty`)
 5. **Check `show_once`** — If true and already dismissed, the hint won't reappear

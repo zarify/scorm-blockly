@@ -61,7 +61,7 @@
         "show_hint_panel": {
           "type": "boolean",
           "default": true,
-          "description": "Show the hint panel in the UI"
+          "description": "Enable student-facing hints in the UI"
         },
         "max_attempts": {
           "type": ["integer", "null"],
@@ -307,6 +307,12 @@
         "message": {
           "type": "string",
           "description": "Hint text shown to the student"
+        },
+        "display_mode": {
+          "type": "string",
+          "enum": ["triggered", "checklist"],
+          "default": "triggered",
+          "description": "triggered: hide this hint until it fires; checklist: always show it in the sidebar and tick it off when triggered"
         },
         "priority": {
           "type": "integer",

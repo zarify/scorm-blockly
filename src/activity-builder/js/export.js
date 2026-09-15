@@ -188,6 +188,7 @@ function generateIndexHtml(config) {
         <div id="blockly-workspace"></div>
         <div id="controls">
           <button id="btn-run" class="btn btn-primary">▶ Run Code</button>
+          <button id="btn-check" class="btn btn-secondary">✓ Check</button>
           <button id="btn-reset" class="btn btn-secondary">↺ Reset</button>
           <button id="btn-request-hint" class="btn btn-secondary">💡 Get Hint</button>
           <button id="btn-code-toggle" class="btn btn-secondary">{ } Show Code</button>
@@ -199,11 +200,11 @@ function generateIndexHtml(config) {
     <button id="results-modal-backdrop" class="results-modal-backdrop" type="button" aria-label="Close results"></button>
     <section class="results-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="results-modal-title">
       <header class="results-modal-header">
-        <h2 id="results-modal-title">Run details</h2>
+        <h2 id="results-modal-title">Run output</h2>
         <button id="btn-close-results-modal" class="btn btn-secondary results-modal-close" type="button" aria-label="Close results">✕</button>
       </header>
       <div class="results-modal-body">
-        <div id="output-panel" class="panel"><p class="output-placeholder">Run your code to see console output, prompts, and automated checks here.</p></div>
+        <div id="output-panel" class="panel"><p class="output-placeholder">Run your code or check your solution to see output, prompts, and feedback here.</p></div>
         <div id="code-panel" class="panel" style="display:none"><h3>Generated Code</h3><pre><code></code></pre></div>
       </div>
     </section>

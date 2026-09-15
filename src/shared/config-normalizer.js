@@ -3,6 +3,7 @@ import { BLOCK_PATTERN_TYPE } from './block-pattern.js';
 import {
   VALID_FIELD_VALUE_MATCH_MODES,
   VALID_CONDITION_TYPES,
+  VALID_HINT_DISPLAY_MODES,
   VALID_HINT_EVENTS,
   VALID_STDOUT_MATCH_MODES,
   VALID_TEST_TYPES,
@@ -23,6 +24,7 @@ import { getPromptInputs, getTestPoints, normalizeTestConfig } from './test-conf
 export function normalizeBuilderDraftConfig(rawConfig) {
   const source = cloneConfig(rawConfig);
   const config = createBaseConfig(source);
+  const legacyHintDisplayMode = normalizeLegacyHintDisplayMode(source?.ui_settings);
 
   const rawCategories = source?.blockly_setup?.toolbox?.categories;
   config.blockly_setup.toolbox.categories = Array.isArray(rawCategories)
@@ -31,7 +33,7 @@ export function normalizeBuilderDraftConfig(rawConfig) {
 
   const rawHints = source?.hints;
   config.hints = Array.isArray(rawHints)
-    ? rawHints.filter(isObjectLike).map(normalizeDraftHint)
+    ? rawHints.filter(isObjectLike).map((hint, index) => normalizeDraftHint(hint, index, legacyHintDisplayMode))
     : [];
 
   const rawTests = source?.evaluation?.test_cases;
@@ -51,6 +53,7 @@ export function normalizeBuilderDraftConfig(rawConfig) {
 export function sanitizeConfigForExport(rawConfig) {
   const source = cloneConfig(rawConfig);
   const config = createBaseConfig(source);
+  const legacyHintDisplayMode = normalizeLegacyHintDisplayMode(source?.ui_settings);
   const omissions = { categories: 0, hints: 0, tests: 0 };
 
   const rawCategories = source?.blockly_setup?.toolbox?.categories;
@@ -65,7 +68,7 @@ export function sanitizeConfigForExport(rawConfig) {
 
   const rawHints = source?.hints;
   const publishHints = Array.isArray(rawHints)
-    ? rawHints.filter(isObjectLike).map(normalizePublishHint)
+    ? rawHints.filter(isObjectLike).map((hint) => normalizePublishHint(hint, legacyHintDisplayMode))
     : [];
   config.hints = publishHints.filter((hint, index) => {
     const valid = validateHintConfig(hint, index).valid;
@@ -147,7 +150,7 @@ function normalizePublishToolboxCategory(category, index) {
   };
 }
 
-function normalizeDraftHint(hint, index) {
+function normalizeDraftHint(hint, index, legacyDisplayMode = 'triggered') {
   const trigger = isObjectLike(hint.trigger) ? hint.trigger : {};
 
   return {
@@ -157,6 +160,7 @@ function normalizeDraftHint(hint, index) {
       conditions: normalizeDraftCondition(trigger.conditions),
       after_attempts: asNonNegativeInteger(trigger.after_attempts, 0),
     },
+    display_mode: normalizePerHintDisplayMode(hint.display_mode, legacyDisplayMode),
     message: asStringOr(hint.message, ''),
     priority: asPositiveInteger(hint.priority, index + 1),
     delay_seconds: asNonNegativeInteger(hint.delay_seconds, 0),
@@ -164,7 +168,7 @@ function normalizeDraftHint(hint, index) {
   };
 }
 
-function normalizePublishHint(hint) {
+function normalizePublishHint(hint, legacyDisplayMode = 'triggered') {
   const trigger = isObjectLike(hint.trigger) ? hint.trigger : null;
 
   return {
@@ -179,6 +183,9 @@ function normalizePublishHint(hint) {
         }
       : null,
     message: asStringOr(hint.message, ''),
+    ...(hint.display_mode !== undefined || legacyDisplayMode !== 'triggered'
+      ? { display_mode: normalizePerHintDisplayMode(hint.display_mode, legacyDisplayMode) }
+      : {}),
     ...(hint.priority !== undefined ? { priority: asPositiveInteger(hint.priority, 1) } : {}),
     ...(hint.delay_seconds !== undefined ? { delay_seconds: asNonNegativeInteger(hint.delay_seconds, 0) } : {}),
     ...(hint.show_once !== undefined ? { show_once: Boolean(hint.show_once) } : {}),
@@ -452,6 +459,17 @@ function asPositiveInteger(value, fallback) {
   const normalized = asOptionalInteger(value, fallback);
   if (normalized === null) return fallback;
   return normalized < 1 ? fallback : normalized;
+}
+
+function normalizeLegacyHintDisplayMode(uiSettings) {
+  return uiSettings?.hint_display_mode === 'checklist' ? 'checklist' : 'triggered';
+}
+
+function normalizePerHintDisplayMode(value, fallback = 'triggered') {
+  if (VALID_HINT_DISPLAY_MODES.includes(value)) {
+    return value;
+  }
+  return fallback === 'checklist' ? 'checklist' : 'triggered';
 }
 
 function normalizePatternFieldConstraints(value) {

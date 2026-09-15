@@ -11,6 +11,7 @@ import { evaluateCondition } from './workspace-inspector.js';
  * @typedef {Object} HintState
  * @property {Set<string>} dismissed - Hint IDs the student has dismissed
  * @property {Map<string, number>} firstTriggered - Hint ID → timestamp when condition first became true
+ * @property {Set<string>} triggered - Hint IDs that have been triggered at least once
  * @property {number} attemptCount - Number of test runs (failed) so far
  * @property {number} elapsedSeconds - Seconds since activity was opened
  */
@@ -99,6 +100,7 @@ function evaluateHint(hint, workspace, state, event) {
     }
   }
 
+  state.triggered.add(hint.id);
   return { visible: true, pendingDelayMs: null };
 }
 
@@ -110,6 +112,7 @@ export function createHintState() {
   return {
     dismissed: new Set(),
     firstTriggered: new Map(),
+    triggered: new Set(),
     attemptCount: 0,
     elapsedSeconds: 0,
   };

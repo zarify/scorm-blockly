@@ -6,7 +6,7 @@ The hint system provides real-time, context-sensitive guidance to students as th
 
 1. The **hint engine** monitors the Blockly workspace for changes (debounced every 2 seconds)
 2. When an event occurs, each hint's **trigger conditions** are evaluated
-3. Hints that pass all checks become **visible** in the hint panel
+3. Hints that pass all checks either become **visible** or get **ticked off** if that individual hint is configured as a checklist item
 4. Students can **dismiss** hints; `show_once` hints won't return, while other hints stay hidden until the triggering situation changes or the event happens again
 5. Hints are sorted by **priority** — higher priority hints appear first
 
@@ -17,6 +17,7 @@ Each hint is an object in the `hints` array:
 ```json
 {
   "id": "hint_need_loop",
+  "display_mode": "triggered",
   "trigger": {
     "event": "workspace_change",
     "conditions": {
@@ -39,9 +40,12 @@ Each hint is an object in the `hints` array:
 | `id` | string | ✅ | — | Unique identifier for this hint |
 | `trigger` | object | ✅ | — | When and why the hint appears |
 | `message` | string | ✅ | — | Text shown to the student |
+| `display_mode` | string | No | `triggered` | `triggered`: hide until this hint fires. `checklist`: always show in the sidebar and tick off once triggered. |
 | `priority` | integer | No | `1` | Higher priority hints appear first |
 | `delay_seconds` | integer | No | `0` | Wait this long after condition is met before showing |
 | `show_once` | boolean | No | `false` | If true, don't re-show after student dismisses |
+
+Checklist items work best when their condition represents a completed milestone, such as adding the required block or matching a finished pattern.
 
 ### Trigger Object
 
@@ -79,7 +83,7 @@ The most common trigger. Fires when the student adds, removes, moves, or modifie
 
 ### `test_fail`
 
-Fires after a student runs their code and at least one test fails.
+Fires after a student clicks **✓ Check** and at least one automated test fails.
 
 ```json
 {
@@ -269,11 +273,11 @@ This state is **not persisted** across page reloads. If the student refreshes th
 
 ## Student UI
 
-Hints appear in the **hint panel** on the left side of the student UI. Each hint renders as a card with:
+When `ui_settings.show_hint_panel` is enabled, hints can be mixed:
 
-- The hint message text
-- A **dismiss button** (✕) to close the hint
+- Hints with `display_mode: "triggered"` show as hint cards only after their trigger conditions fire. Each card includes the hint message and a **dismiss button** (✕).
+- Hints with `display_mode: "checklist"` stay visible in the sidebar from the start and tick off once they have triggered.
 
-The hint panel is visible by default but can be hidden via `ui_settings.show_hint_panel: false`.
+Set `ui_settings.show_hint_panel: false` to disable the student-facing hint UI entirely.
 
 > **Note:** The student UI now includes a **💡 Get Hint** button, so `manual` trigger hints can be exercised directly in both the exported activity and the builder preview.
