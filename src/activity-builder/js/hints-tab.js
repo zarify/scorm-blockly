@@ -220,16 +220,6 @@ function renderConditionBuilder(container, condition, onChange) {
       newCondition.workspace_state = null;
       newCondition.field_constraints = {};
     }
-
-    function getConditionTypeOptions(currentType) {
-      if (currentType && !(currentType in LEGACY_CONDITION_TYPES)) {
-        return CONDITION_TYPES;
-      }
-      if (!currentType || CONDITION_TYPES.some((type) => type.value === currentType)) {
-        return CONDITION_TYPES;
-      }
-      return [...CONDITION_TYPES, { value: currentType, label: LEGACY_CONDITION_TYPES[currentType] || `${currentType} — legacy` }];
-    }
     onChange(newCondition);
     renderConditionBuilder(container, newCondition, onChange);
   });
@@ -555,6 +545,16 @@ function updateHintListTitle(index, message) {
   const title = document.querySelector(`.list-item[data-index="${index}"] .list-item-title`);
   if (!title) return;
   title.textContent = getHintListTitle(message);
+}
+
+function getConditionTypeOptions(currentType) {
+  if (!currentType || CONDITION_TYPES.some((type) => type.value === currentType)) {
+    return CONDITION_TYPES;
+  }
+  return [
+    ...CONDITION_TYPES,
+    { value: currentType, label: LEGACY_CONDITION_TYPES[currentType] || `${currentType} — legacy` },
+  ];
 }
 
 function escapeHtml(str) {

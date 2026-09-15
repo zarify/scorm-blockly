@@ -469,9 +469,9 @@ body {
 
 .pattern-builder-layout {
   display: grid;
-  grid-template-columns: minmax(0, 1.5fr) minmax(260px, 0.9fr);
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
-  min-height: 340px;
+  align-content: start;
 }
 
 .pattern-workspace,
@@ -482,12 +482,16 @@ body {
 }
 
 .pattern-workspace {
-  min-height: 340px;
+  min-height: 420px;
   overflow: hidden;
 }
 
 .pattern-inspector {
   min-width: 0;
+}
+
+.pattern-inspector-card {
+  max-width: 100%;
 }
 
 .pattern-inspector-card {
