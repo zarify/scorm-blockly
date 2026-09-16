@@ -114,4 +114,3 @@ function slugify(text) {
 function escapeAttr(str) {
   return String(str).replace(/"/g, '&quot;').replace(/</g, '&lt;');
 }
-

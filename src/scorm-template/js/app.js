@@ -14,7 +14,7 @@ let attemptCount = 0;
 const PREVIEW_CONFIG_GLOBAL = '__BLOCKLY_SCORM_PREVIEW_CONFIG__';
 const PREVIEW_MODE_GLOBAL = '__BLOCKLY_SCORM_PREVIEW_MODE__';
 const OUTPUT_PLACEHOLDER_HTML =
-  '<p class="output-placeholder">Run your code to see console output, prompts, and automated checks here.</p>';
+  '<p class="output-placeholder">Run your code or check your solution to see output, prompts, and feedback here.</p>';
 
 async function init() {
   // 1. Initialize SCORM
@@ -48,11 +48,15 @@ async function init() {
   // 5. Initialize hint engine
   setBlocklyRef(Blockly);
   const hintPanel = document.getElementById('hint-panel');
-  initHintEngine(config.hints || [], getWorkspace(), hintPanel);
+  initHintEngine(config.hints || [], getWorkspace(), hintPanel, {
+    enabled: areHintsEnabled(config),
+    legacyDisplayMode: getLegacyHintDisplayMode(config),
+  });
 
   // 6. Attach event handlers
   setupResultsModal();
   document.getElementById('btn-run').addEventListener('click', handleRun);
+  document.getElementById('btn-check').addEventListener('click', handleCheck);
   document.getElementById('btn-reset').addEventListener('click', handleReset);
   configureHintRequestButton(config);
   configureCodeToggleButton(config);
@@ -68,8 +72,8 @@ async function init() {
 
   showStatus(
     embeddedPreview
-      ? 'Preview ready. Build with blocks, run tests, request hints, and inspect generated code.'
-      : 'Activity loaded. Arrange your blocks and click "Run Code"!',
+      ? 'Preview ready. Build with blocks, run code, check tests, request hints, and inspect generated code.'
+      : 'Activity loaded. Arrange your blocks, then click "Run Code" or "Check".',
     'info',
   );
 }
@@ -108,8 +112,8 @@ function renderInstructions(cfg) {
 
 function renderUISettings(cfg) {
   const hintPanel = document.getElementById('hint-panel');
-  if (hintPanel && cfg.ui_settings?.show_hint_panel === false) {
-    hintPanel.style.display = 'none';
+  if (hintPanel) {
+    hintPanel.style.display = areHintsEnabled(cfg) ? '' : 'none';
   }
 }
 
@@ -117,7 +121,7 @@ function configureHintRequestButton(cfg) {
   const hintButton = document.getElementById('btn-request-hint');
   if (!hintButton) return;
 
-  const hintPanelEnabled = cfg.ui_settings?.show_hint_panel !== false;
+  const hintPanelEnabled = areHintsEnabled(cfg);
   const hasHints = Array.isArray(cfg.hints) && cfg.hints.length > 0;
   hintButton.style.display = hintPanelEnabled && hasHints ? 'inline-flex' : 'none';
   hintButton.onclick = hintPanelEnabled && hasHints ? handleHintRequest : null;
@@ -137,38 +141,47 @@ function configureCodeToggleButton(cfg) {
 }
 
 async function handleRun() {
-  const runBtn = document.getElementById('btn-run');
-  runBtn.disabled = true;
-  runBtn.textContent = 'Running...';
+  setExecutionButtonState({ running: true });
+
+  try {
+    const execution = executeInteractiveRun(generateCode());
+    setResultsModalTitle('Run output');
+    renderRunOutput(execution);
+    openResultsModal();
+  } catch (err) {
+    showStatus(`Error: ${err.message}`, 'error');
+  } finally {
+    setExecutionButtonState();
+  }
+}
+
+async function handleCheck() {
+  setExecutionButtonState({ checking: true });
 
   try {
     const code = generateCode();
     const workspace = getWorkspace();
-    const execution = executeInteractiveRun(code);
     const { results, totalScore, maxScore } = await runTests(
       config.evaluation.test_cases,
       code,
-      workspace
+      workspace,
     );
 
-    attemptCount++;
-    renderRunOutput(execution, results, totalScore, maxScore);
+    setResultsModalTitle('Check results');
+    renderCheckOutput(results, totalScore, maxScore);
     openResultsModal();
 
-    // Report score to SCORM
     const normalizedScore = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
     scorm.reportScore(normalizedScore);
 
-    // Notify hint engine of failures
-    const hasFailures = results.some((r) => !r.passed);
-    if (hasFailures) {
+    if (results.some((result) => !result.passed)) {
+      attemptCount += 1;
       onTestFail(attemptCount);
     }
   } catch (err) {
     showStatus(`Error: ${err.message}`, 'error');
   } finally {
-    runBtn.disabled = false;
-    runBtn.textContent = 'Run Code';
+    setExecutionButtonState();
   }
 }
 
@@ -213,58 +226,22 @@ function handleCodeToggle() {
   }
 }
 
-function renderRunOutput(execution, results, totalScore, maxScore) {
+function renderRunOutput(execution) {
+  const panel = document.getElementById('output-panel');
+  if (!panel) return;
+  panel.innerHTML = buildExecutionOutputHtml(execution);
+}
+
+function renderCheckOutput(results, totalScore, maxScore) {
   const panel = document.getElementById('output-panel');
   if (!panel) return;
 
-  const percent = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
-  const allPassed = results.length > 0 ? results.every((r) => r.passed) : execution.success;
-
-  let html = '<div class="output-section">';
-  html += '<h3>Program Output</h3>';
-
-  if (execution.stdout) {
-    html += `<pre class="output-console">${escapeHtml(execution.stdout)}</pre>`;
-  } else {
-    html += '<p class="output-empty">No console output produced.</p>';
+  if (!results.length) {
+    panel.innerHTML = '<p class="output-empty">No automated checks are configured for this activity.</p>';
+    return;
   }
 
-  if (execution.prompts.length > 0) {
-    html += '<div class="prompt-log">';
-    html += '<h4>Inputs used during this run</h4>';
-    html += '<ul class="prompt-list">';
-    execution.prompts.forEach((entry, index) => {
-      const label = entry.message || `Prompt ${index + 1}`;
-      const response = entry.cancelled ? '<em>Cancelled</em>' : `<code>${escapeHtml(entry.response)}</code>`;
-      html += `<li class="prompt-item"><strong>${escapeHtml(label)}</strong><span class="prompt-arrow">→</span>${response}</li>`;
-    });
-    html += '</ul></div>';
-  }
-
-  if (!execution.success) {
-    html += `<div class="run-error"><strong>Runtime error:</strong> ${escapeHtml(execution.error || 'Unknown error')}</div>`;
-  }
-
-  html += '</div>';
-
-  if (results.length > 0) {
-    html += `<div class="results-section">`;
-    html += `<div class="results-header ${allPassed ? 'results-pass' : 'results-fail'}">`;
-    html += `<strong>${allPassed ? '✅ All automated checks passed!' : '❌ Some automated checks failed'}</strong>`;
-    html += ` — Score: ${percent}%`;
-    html += '</div>';
-
-    html += '<ul class="results-list">';
-    for (const r of results) {
-      html += `<li class="${r.passed ? 'result-pass' : 'result-fail'}">`;
-      html += `<span class="result-icon">${r.passed ? '✓' : '✗'}</span> `;
-      html += escapeHtml(r.feedback);
-      html += '</li>';
-    }
-    html += '</ul></div>';
-  }
-
-  panel.innerHTML = html;
+  panel.innerHTML = buildCheckResultsHtml(results, totalScore, maxScore);
 }
 
 function setupResultsModal() {
@@ -279,6 +256,7 @@ function setupResultsModal() {
       closeResultsModal();
     }
   });
+  setResultsModalTitle('Run output');
   setOutputPlaceholder();
 }
 
@@ -333,6 +311,87 @@ function showStatus(message, type) {
   if (!el) return;
   el.className = `status-bar status-${type}`;
   el.textContent = message;
+}
+
+function setExecutionButtonState({ running = false, checking = false } = {}) {
+  const runBtn = document.getElementById('btn-run');
+  const checkBtn = document.getElementById('btn-check');
+  const busy = running || checking;
+
+  if (runBtn) {
+    runBtn.disabled = busy;
+    runBtn.textContent = running ? 'Running...' : '▶ Run Code';
+  }
+
+  if (checkBtn) {
+    checkBtn.disabled = busy;
+    checkBtn.textContent = checking ? 'Checking...' : '✓ Check';
+  }
+}
+
+function setResultsModalTitle(title) {
+  const titleElement = document.getElementById('results-modal-title');
+  if (titleElement) {
+    titleElement.textContent = title;
+  }
+}
+
+function buildExecutionOutputHtml(execution) {
+  let html = '<div class="output-section">';
+  html += '<h3>Program Output</h3>';
+
+  if (execution.stdout) {
+    html += `<pre class="output-console">${escapeHtml(execution.stdout)}</pre>`;
+  } else {
+    html += '<p class="output-empty">No console output produced.</p>';
+  }
+
+  if (execution.prompts.length > 0) {
+    html += '<div class="prompt-log">';
+    html += '<h4>Inputs used during this run</h4>';
+    html += '<ul class="prompt-list">';
+    execution.prompts.forEach((entry, index) => {
+      const label = entry.message || `Prompt ${index + 1}`;
+      const response = entry.cancelled ? '<em>Cancelled</em>' : `<code>${escapeHtml(entry.response)}</code>`;
+      html += `<li class="prompt-item"><strong>${escapeHtml(label)}</strong><span class="prompt-arrow">→</span>${response}</li>`;
+    });
+    html += '</ul></div>';
+  }
+
+  if (!execution.success) {
+    html += `<div class="run-error"><strong>Runtime error:</strong> ${escapeHtml(execution.error || 'Unknown error')}</div>`;
+  }
+
+  html += '</div>';
+  return html;
+}
+
+function buildCheckResultsHtml(results, totalScore, maxScore) {
+  const percent = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
+  const allPassed = results.every((result) => result.passed);
+
+  let html = '<div class="results-section">';
+  html += `<div class="results-header ${allPassed ? 'results-pass' : 'results-fail'}">`;
+  html += `<strong>${allPassed ? '✅ All automated checks passed!' : '❌ Some automated checks failed'}</strong>`;
+  html += ` — Score: ${percent}%`;
+  html += '</div>';
+  html += '<ul class="results-list">';
+  for (const result of results) {
+    html += `<li class="${result.passed ? 'result-pass' : 'result-fail'}">`;
+    html += `<span class="result-icon">${result.passed ? '✓' : '✗'}</span> `;
+    html += escapeHtml(result.feedback);
+    html += '</li>';
+  }
+  html += '</ul></div>';
+  return html;
+}
+
+function areHintsEnabled(cfg) {
+  return cfg.ui_settings?.show_hint_panel !== false;
+}
+
+function getLegacyHintDisplayMode(cfg) {
+  return cfg.ui_settings?.hint_display_mode === 'checklist' ? 'checklist' : 'triggered';
 }
 
 function escapeHtml(str) {

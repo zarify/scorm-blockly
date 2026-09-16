@@ -38,6 +38,11 @@ const TRIGGER_EVENTS = [
   { value: 'timed', label: 'After time delay' },
 ];
 
+const HINT_DISPLAY_MODES = [
+  { value: 'triggered', label: 'Hidden until triggered' },
+  { value: 'checklist', label: 'Always visible checklist item' },
+];
+
 export function initHintsTab() {
   document.getElementById('btn-add-hint').addEventListener('click', addHint);
   lastConfigRef = getConfig();
@@ -68,6 +73,7 @@ function addHint() {
       event: 'workspace_change',
       conditions: { type: 'workspace_empty' },
     },
+    display_mode: 'triggered',
     message: 'New hint — edit the message and conditions.',
     priority: cfg.hints.length + 1,
     delay_seconds: 0,
@@ -140,6 +146,15 @@ function renderHintEditor() {
       <textarea id="hint-message" rows="3">${escapeHtml(hint.message)}</textarea>
     </div>
     <div class="form-group">
+      <label>Display Mode</label>
+      <select id="hint-display-mode">
+        ${HINT_DISPLAY_MODES.map((mode) => `<option value="${mode.value}" ${getHintDisplayMode(hint) === mode.value ? 'selected' : ''}>${mode.label}</option>`).join('')}
+      </select>
+      <small>${getHintDisplayMode(hint) === 'checklist'
+        ? 'Checklist items stay visible in the sidebar and tick off once triggered.'
+        : 'Triggered hints stay hidden until their trigger conditions fire.'}</small>
+    </div>
+    <div class="form-group">
       <label>Trigger Event</label>
       <select id="hint-trigger-event">
         ${TRIGGER_EVENTS.map((e) => `<option value="${e.value}" ${hint.trigger.event === e.value ? 'selected' : ''}>${e.label}</option>`).join('')}
@@ -164,8 +179,10 @@ function renderHintEditor() {
       </div>
     </div>
     <label class="checkbox-label">
-      <input type="checkbox" id="hint-show-once" ${hint.show_once ? 'checked' : ''}>
-      Show once (don't re-show after dismissal)
+      <input type="checkbox" id="hint-show-once" ${hint.show_once ? 'checked' : ''} ${getHintDisplayMode(hint) === 'checklist' ? 'disabled' : ''}>
+      ${getHintDisplayMode(hint) === 'checklist'
+        ? 'Show once does not apply to checklist items'
+        : "Show once (don't re-show after dismissal)"}
     </label>
   `;
 
@@ -184,6 +201,13 @@ function renderHintEditor() {
   bindField('hint-message', (v) => {
     hint.message = v;
     updateHintListTitle(selectedHintIndex, v);
+  });
+  bindField('hint-display-mode', (v) => {
+    hint.display_mode = v === 'checklist' ? 'checklist' : 'triggered';
+    if (hint.display_mode === 'checklist') {
+      hint.show_once = false;
+    }
+    renderHintEditor();
   });
   bindField('hint-trigger-event', (v) => { hint.trigger.event = v; });
   bindField('hint-priority', (v) => { hint.priority = parseInt(v) || 1; });
@@ -545,6 +569,10 @@ function updateHintListTitle(index, message) {
   const title = document.querySelector(`.list-item[data-index="${index}"] .list-item-title`);
   if (!title) return;
   title.textContent = getHintListTitle(message);
+}
+
+function getHintDisplayMode(hint) {
+  return hint.display_mode === 'checklist' ? 'checklist' : 'triggered';
 }
 
 function getConditionTypeOptions(currentType) {

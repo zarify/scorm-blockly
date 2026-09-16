@@ -12,7 +12,7 @@
       "Create a temporary variable to hold one of the values",
       "Use 'set' blocks to rearrange the values",
       "After your code runs, 'a' should be 10 and 'b' should be 5",
-      "Click 'Run Code' to check your solution"
+      "Click 'Check' to check your solution"
     ]
   },
   "ui_settings": {

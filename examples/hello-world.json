@@ -11,7 +11,7 @@
       "Find the 'print' block in the Text category",
       "Drag it onto the workspace",
       "Connect a text block with 'Hello, World!' to the print block",
-      "Click 'Run Code' to test your solution"
+      "Click 'Check' to test your solution"
     ]
   },
   "ui_settings": {

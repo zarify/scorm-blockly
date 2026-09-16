@@ -11,6 +11,7 @@ let hintState = null;
 let hintConfigs = [];
 let workspace = null;
 let hintPanel = null;
+let hintUiOptions = { enabled: true, legacyDisplayMode: 'triggered' };
 let debounceTimer = null;
 let pendingEvaluationTimer = null;
 const DEBOUNCE_MS = 2000;
@@ -20,17 +21,25 @@ const DEBOUNCE_MS = 2000;
  * @param {Array} hints - Hint configs from activity config
  * @param {object} blocklyWorkspace - Blockly workspace instance
  * @param {HTMLElement} panelElement - DOM element for the hint panel
+ * @param {{ enabled?: boolean, legacyDisplayMode?: string }} options
  */
-export function initHintEngine(hints, blocklyWorkspace, panelElement) {
+export function initHintEngine(hints, blocklyWorkspace, panelElement, options = {}) {
   hintConfigs = hints || [];
   workspace = blocklyWorkspace;
   hintPanel = panelElement;
+  hintUiOptions = {
+    enabled: options.enabled !== false,
+    legacyDisplayMode: options.legacyDisplayMode === 'checklist' ? 'checklist' : 'triggered',
+  };
   hintState = createHintState();
   clearTimeout(debounceTimer);
   clearScheduledEvaluation();
 
-  if (hintConfigs.length === 0) {
-    if (hintPanel) hintPanel.style.display = 'none';
+  if (!hintUiOptions.enabled || hintConfigs.length === 0) {
+    if (hintPanel) {
+      hintPanel.style.display = 'none';
+      hintPanel.innerHTML = '';
+    }
     return;
   }
 
@@ -129,21 +138,42 @@ function resetTransientDismissals(event) {
 function renderHints(visibleHints) {
   if (!hintPanel) return;
 
-  if (visibleHints.length === 0) {
-    hintPanel.innerHTML = '<p class="hint-empty">No hints available right now.</p>';
+  const checklistHints = hintConfigs.filter((hint) => getHintDisplayMode(hint) === 'checklist');
+  const checklistHintIds = new Set(checklistHints.map((hint) => hint.id));
+  const activeHints = visibleHints.filter((hint) => !checklistHintIds.has(hint.id));
+
+  if (checklistHints.length === 0 && activeHints.length === 0) {
+    hintPanel.style.display = 'none';
+    hintPanel.innerHTML = '';
     return;
   }
 
-  hintPanel.innerHTML = visibleHints
-    .map(
-      (hint) => `
-    <div class="hint-card" data-hint-id="${hint.id}">
-      <div class="hint-message">${escapeHtml(hint.message)}</div>
-      <button class="hint-dismiss" data-hint-id="${escapeAttr(hint.id)}" title="Dismiss hint">✕</button>
-    </div>
-  `
-    )
-    .join('');
+  hintPanel.style.display = '';
+  const sections = [];
+
+  if (activeHints.length > 0) {
+    sections.push(`
+      <section class="hint-section">
+        <h3>💡 Hints</h3>
+        ${activeHints
+          .map(
+            (hint) => `
+          <div class="hint-card" data-hint-id="${hint.id}">
+            <div class="hint-message">${escapeHtml(hint.message)}</div>
+            <button class="hint-dismiss" data-hint-id="${escapeAttr(hint.id)}" title="Dismiss hint">✕</button>
+          </div>
+        `
+          )
+          .join('')}
+      </section>
+    `);
+  }
+
+  if (checklistHints.length > 0) {
+    sections.push(renderChecklistHints(checklistHints));
+  }
+
+  hintPanel.innerHTML = sections.join('');
 
   hintPanel.querySelectorAll('.hint-dismiss').forEach((button) => {
     button.addEventListener('click', () => {
@@ -152,9 +182,40 @@ function renderHints(visibleHints) {
   });
 }
 
+function renderChecklistHints(checklistHints) {
+  return `
+    <section class="hint-section">
+      <h3>✅ Hint checklist</h3>
+      <ul class="hint-checklist">
+        ${checklistHints
+        .map((hint) => {
+          const completed = hintState?.triggered.has(hint.id);
+          return `
+            <li class="hint-checklist-item ${completed ? 'is-complete' : ''}">
+              <span class="hint-checklist-icon" aria-hidden="true">${completed ? '☑' : '☐'}</span>
+              <span class="hint-checklist-message">${escapeHtml(hint.message)}</span>
+            </li>
+          `;
+        })
+        .join('')}
+      </ul>
+    </section>
+  `;
+}
+
+function getHintDisplayMode(hint) {
+  if (hint?.display_mode === 'checklist') {
+    return 'checklist';
+  }
+  if (hint?.display_mode === 'triggered') {
+    return 'triggered';
+  }
+  return hintUiOptions.legacyDisplayMode === 'checklist' ? 'checklist' : 'triggered';
+}
+
 function escapeHtml(str) {
   const div = document.createElement('div');
-  div.textContent = str;
+  div.textContent = str == null ? '' : String(str);
   return div.innerHTML;
 }
 

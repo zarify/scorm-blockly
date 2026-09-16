@@ -65,7 +65,7 @@ Every Blockly activity is defined by a single JSON file: `activity_config.json`.
       "Drag a for-loop block from the Loops category",
       "Set the loop to count from 1 to 3",
       "Put a print block inside the loop",
-      "Click Run Code to test your solution"
+      "Click Check to test your solution"
     ]
   }
 }
@@ -79,8 +79,8 @@ Every Blockly activity is defined by a single JSON file: `activity_config.json`.
 |-------|------|----------|---------|--------|-------------|
 | `theme` | string | No | `"default"` | `"default"`, `"dark"`, `"high_contrast"` | ⚠️ **Not yet implemented.** Defined in schema but not applied at runtime. |
 | `show_code_toggle` | boolean | No | `false` | — | Show the "Show Code" button that reveals generated JavaScript |
-| `show_hint_panel` | boolean | No | `true` | — | Show the hints panel in the student UI |
-| `max_attempts` | integer or null | No | `null` | `≥ 1` or `null` | ⚠️ **Not yet enforced at runtime.** Defined in schema but the Run Code button is not disabled after N attempts. |
+| `show_hint_panel` | boolean | No | `true` | — | Enable student-facing hints in the UI |
+| `max_attempts` | integer or null | No | `null` | `≥ 1` or `null` | ⚠️ **Not yet enforced at runtime.** Defined in schema but the Check button is not disabled after N attempts. |
 
 **Example:**
 ```json
@@ -175,6 +175,7 @@ Each hint object:
 | `trigger.conditions` | condition object | No | — | Workspace condition (required for `workspace_change`, optional for others). See [Condition Reference](condition-reference.md) |
 | `trigger.after_attempts` | integer | No | `0` | Minimum number of failed test runs before hint can appear |
 | `message` | string | ✅ | — | Text shown to the student |
+| `display_mode` | string | No | `"triggered"` | `triggered`: hide until fired. `checklist`: always show in the sidebar and tick off once triggered. |
 | `priority` | integer | No | `1` | Higher priority hints appear first (sorted descending) |
 | `delay_seconds` | integer | No | `0` | Seconds after condition becomes true before hint appears |
 | `show_once` | boolean | No | `false` | If `true`, hint never reappears after student dismisses it |
@@ -185,6 +186,7 @@ Each hint object:
   "hints": [
     {
       "id": "hint_need_loop",
+      "display_mode": "triggered",
       "trigger": {
         "event": "workspace_change",
         "conditions": {
@@ -200,6 +202,8 @@ Each hint object:
   ]
 }
 ```
+
+Checklist-style hints work best when the condition represents a completed milestone, such as `block_exists` for a required block or a matching `block_pattern` for a finished structure.
 
 For longer mixed chains/subtrees, `trigger.conditions` can also be a `block_pattern` condition built visually in the authoring UI and stored as a serialized pattern workspace plus optional field constraints.
 
@@ -310,7 +314,7 @@ Here is a minimal but complete config:
     "steps": [
       "Drag a print block onto the workspace",
       "Connect a text block with 'Hello, World!'",
-      "Click Run Code"
+      "Click Check"
     ]
   },
   "blockly_setup": {

@@ -81,7 +81,8 @@ This produces a functional SCORM package with the bundled student runtime includ
    - [ ] Blockly workspace loads with correct toolbox
    - [ ] Instructions display correctly
    - [ ] Starter blocks appear (if configured)
-   - [ ] "Run Code" executes and shows results
+   - [ ] "Run Code" executes the learner program
+   - [ ] "Check" runs automated tests and reports a score
    - [ ] Score reports to Moodle gradebook
    - [ ] Hints appear as expected
 

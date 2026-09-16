@@ -5,6 +5,7 @@ import { BLOCK_PATTERN_TYPE, registerBlockPatternBlocks } from './block-pattern.
 export const VALID_TEST_TYPES = ['stdout_match', 'block_structure', 'variable_state'];
 export const VALID_STDOUT_MATCH_MODES = ['exact', 'contains', 'regex'];
 export const VALID_VARIABLE_COMPARISONS = ['equals', 'gt', 'lt', 'gte', 'lte', 'contains', 'type'];
+export const VALID_HINT_DISPLAY_MODES = ['triggered', 'checklist'];
 export const VALID_FIELD_VALUE_MATCH_MODES = ['exact', 'regex'];
 export const VALID_CONDITION_TYPES = [
   'block_exists', 'block_missing', 'block_connected', 'block_nested',
@@ -366,6 +367,15 @@ function validateHint(hint, index, errors) {
   validateRequiredString(hint, 'id', errors, prefix);
   validateRequiredString(hint, 'message', errors, prefix);
   validateRequired(hint, 'trigger', 'object', errors, prefix);
+  if (
+    hint.display_mode !== undefined
+    && !VALID_HINT_DISPLAY_MODES.includes(hint.display_mode)
+  ) {
+    errors.push({
+      path: `${prefix}.display_mode`,
+      message: `Must be one of: ${VALID_HINT_DISPLAY_MODES.join(', ')}`,
+    });
+  }
 
   if (hint.trigger) {
     if (!VALID_HINT_EVENTS.includes(hint.trigger.event)) {
