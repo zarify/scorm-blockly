@@ -1,12 +1,19 @@
 import * as Blockly from 'blockly';
 import { getTestPoints } from './test-config.js';
 import { BLOCK_PATTERN_TYPE, registerBlockPatternBlocks } from './block-pattern.js';
+import {
+  createFieldValueMatcher,
+  getEffectiveRegexFlags,
+  normalizeFieldValueCaseSensitivity,
+  normalizeFieldValueMatchMode,
+  VALID_FIELD_VALUE_MATCH_MODES as SHARED_VALID_FIELD_VALUE_MATCH_MODES,
+} from './field-value-matching.js';
 
 export const VALID_TEST_TYPES = ['stdout_match', 'block_structure', 'variable_state'];
 export const VALID_STDOUT_MATCH_MODES = ['exact', 'contains', 'regex'];
 export const VALID_VARIABLE_COMPARISONS = ['equals', 'gt', 'lt', 'gte', 'lte', 'contains', 'type'];
 export const VALID_HINT_DISPLAY_MODES = ['triggered', 'checklist'];
-export const VALID_FIELD_VALUE_MATCH_MODES = ['exact', 'regex'];
+export const VALID_FIELD_VALUE_MATCH_MODES = SHARED_VALID_FIELD_VALUE_MATCH_MODES;
 export const VALID_CONDITION_TYPES = [
   'block_exists', 'block_missing', 'block_connected', 'block_nested',
   'block_field_value', 'block_count', 'workspace_empty', 'all', 'any', 'none', BLOCK_PATTERN_TYPE,
@@ -292,28 +299,25 @@ function validateCondition(condition, path, errors) {
     if (condition.regex_flags !== undefined) {
       if (typeof condition.regex_flags !== 'string') {
         errors.push({ path: `${path}.regex_flags`, message: 'Must be a string' });
-      } else if (!isValidRegexFlags(condition.regex_flags)) {
+      } else if (!isValidRegexFlags(getEffectiveRegexFlags(
+        condition.regex_flags,
+        normalizeFieldValueCaseSensitivity(condition.case_sensitive, condition.regex_flags),
+      ))) {
         errors.push({
           path: `${path}.regex_flags`,
-          message: 'Must use valid JavaScript regex flags without duplicates',
+          message: 'Must use valid JavaScript regex flags',
         });
       }
     }
+    validateCaseSensitive(condition.case_sensitive, `${path}.case_sensitive`, errors);
     if (hasScopedValueConstraint && String(condition.field_name ?? '').trim() === '') {
       errors.push({
         path: `${path}.field_name`,
         message: 'Field name is required when adding a descendant value constraint',
       });
     }
-    if (hasScopedValueConstraint && condition.match_mode === 'regex') {
-      try {
-        new RegExp(`^(?:${String(condition.expected_value ?? '')})$`, condition.regex_flags || '');
-      } catch (err) {
-        errors.push({
-          path: `${path}.expected_value`,
-          message: `Invalid regex pattern: ${err.message}`,
-        });
-      }
+    if (hasScopedValueConstraint) {
+      validateFieldValueMatcherConfig(condition, path, errors);
     }
   } else if (condition.type === 'block_field_value') {
     validateRequiredString(condition, 'block_type', errors, path);
@@ -330,23 +334,18 @@ function validateCondition(condition, path, errors) {
     if (condition.regex_flags !== undefined) {
       if (typeof condition.regex_flags !== 'string') {
         errors.push({ path: `${path}.regex_flags`, message: 'Must be a string' });
-      } else if (!isValidRegexFlags(condition.regex_flags)) {
+      } else if (!isValidRegexFlags(getEffectiveRegexFlags(
+        condition.regex_flags,
+        normalizeFieldValueCaseSensitivity(condition.case_sensitive, condition.regex_flags),
+      ))) {
         errors.push({
           path: `${path}.regex_flags`,
-          message: 'Must use valid JavaScript regex flags without duplicates',
+          message: 'Must use valid JavaScript regex flags',
         });
       }
     }
-    if ((condition.match_mode || 'exact') === 'regex') {
-      try {
-        new RegExp(`^(?:${String(condition.expected_value ?? '')})$`, condition.regex_flags || '');
-      } catch (err) {
-        errors.push({
-          path: `${path}.expected_value`,
-          message: `Invalid regex pattern: ${err.message}`,
-        });
-      }
-    }
+    validateCaseSensitive(condition.case_sensitive, `${path}.case_sensitive`, errors);
+    validateFieldValueMatcherConfig(condition, path, errors);
   } else if (condition.type === BLOCK_PATTERN_TYPE) {
     validateBlockPatternCondition(condition, path, errors);
   } else if (condition.type === 'block_count') {
@@ -400,7 +399,8 @@ function hasNestedScopedValueConstraint(condition) {
   return (
     String(condition.field_name ?? '').trim() !== ''
     || condition.expected_value !== undefined
-    || condition.match_mode === 'regex'
+    || normalizeFieldValueMatchMode(condition.match_mode) !== 'exact'
+    || condition.case_sensitive === false
     || String(condition.regex_flags ?? '') !== ''
   );
 }
@@ -495,32 +495,47 @@ function validateBlockPatternCondition(condition, path, errors) {
         if (constraint.regex_flags !== undefined) {
           if (typeof constraint.regex_flags !== 'string') {
             errors.push({ path: `${fieldPath}.regex_flags`, message: 'Must be a string' });
-          } else if (!isValidRegexFlags(constraint.regex_flags)) {
+          } else if (!isValidRegexFlags(getEffectiveRegexFlags(
+            constraint.regex_flags,
+            normalizeFieldValueCaseSensitivity(constraint.case_sensitive, constraint.regex_flags),
+          ))) {
             errors.push({
               path: `${fieldPath}.regex_flags`,
-              message: 'Must use valid JavaScript regex flags without duplicates',
+              message: 'Must use valid JavaScript regex flags',
             });
           }
         }
-
-        if ((constraint.match_mode || 'exact') === 'regex') {
-          try {
-            new RegExp(
-              `^(?:${String(constraint.expected_value ?? '')})$`,
-              constraint.regex_flags || '',
-            );
-          } catch (err) {
-            errors.push({
-              path: `${fieldPath}.expected_value`,
-              message: `Invalid regex pattern: ${err.message}`,
-            });
-          }
-        }
+        validateCaseSensitive(constraint.case_sensitive, `${fieldPath}.case_sensitive`, errors);
+        validateFieldValueMatcherConfig(constraint, fieldPath, errors);
       }
     }
   } finally {
     if (typeof patternWorkspace.dispose === 'function') {
       patternWorkspace.dispose();
     }
+  }
+}
+
+function validateCaseSensitive(value, path, errors) {
+  if (value !== undefined && typeof value !== 'boolean') {
+    errors.push({ path, message: 'Must be a boolean' });
+  }
+}
+
+function validateFieldValueMatcherConfig(value, path, errors) {
+  const matcher = createFieldValueMatcher(
+    value.match_mode || 'exact',
+    String(value.expected_value ?? ''),
+    {
+      caseSensitive: normalizeFieldValueCaseSensitivity(value.case_sensitive, value.regex_flags),
+      regexFlags: value.regex_flags || '',
+    },
+  );
+
+  if (!matcher.valid) {
+    errors.push({
+      path: `${path}.expected_value`,
+      message: matcher.detail,
+    });
   }
 }

@@ -286,8 +286,8 @@ See [Test Types](test-types.md) for type-specific fields.
           "input_name": "VALUE",
           "field_name": "TEXT",
           "expected_value": "Who.*\\?",
-          "match_mode": "regex",
-          "regex_flags": "i"
+          "match_mode": "regex_search",
+          "case_sensitive": false
         },
         "points": 2,
         "feedback_on_fail": "Use a prompt with the expected message."

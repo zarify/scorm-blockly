@@ -154,8 +154,8 @@ Those older predicate types are still supported for existing configs and API-lev
       "text_block_id": {
         "TEXT": {
           "expected_value": "Who.*\\?",
-          "match_mode": "regex",
-          "regex_flags": "i"
+          "match_mode": "regex_search",
+          "case_sensitive": false
         }
       }
     }

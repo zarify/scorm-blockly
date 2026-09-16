@@ -185,12 +185,12 @@ Check these first:
 1. **Single root block** — the pattern workspace must have exactly one top-level root block
 2. **Wildcard choice** — use **any block(s)** only for statement chains, and **any value** only for value inputs
 3. **Scoped field constraints** — field constraints are tied to the selected pattern block, not applied workspace-wide
-4. **Regex mode** — regex field constraints are full matches, not substring searches
+4. **Comparison mode** — choose carefully between exact, contains, regex full-match, and regex search
 5. **Structure direction** — nested inputs and vertical `next` chains must be connected in the pattern exactly the way you want them matched
 
 ### `block_field_value` not matching
 
-Remember that comparison is **string-based** in exact mode, or a **full regex match** in regex mode. Common pitfalls:
+Remember that comparison can be **exact**, **contains**, **regex full-match**, or **regex search**. Common pitfalls:
 
 ```json
 // ❌ This won't match — field value is string "3", comparing to number 3
@@ -205,24 +205,24 @@ Both sides are converted to strings via `String()` in exact mode, so `3` and `"3
 1. The exact field name (case-sensitive)
 2. The exact value (including whitespace)
 3. That the block type is correct
-4. Whether regex mode is enabled when you meant to use an exact value
-5. Whether your regex needs flags like `i` for case-insensitive matching
+4. Whether regex or contains mode is enabled when you meant to use an exact value
+5. Whether `case_sensitive` should be `false`
 
 For Blockly variable dropdown fields like `VAR`, the matcher uses the **variable name** shown in the block, not Blockly's generated internal variable id.
 
-Regex mode uses a full match, not a substring search. For example:
+Regex full-match uses the whole field value. Regex search matches anywhere inside it. For example:
 
 ```json
-{ "expected_value": "Who.*\\?", "match_mode": "regex", "regex_flags": "i" }
+{ "expected_value": "Who.*\\?", "match_mode": "regex_search", "case_sensitive": false }
 ```
 
 matches `"Who's there?"`, but:
 
 ```json
-{ "expected_value": "there", "match_mode": "regex" }
+{ "expected_value": "there", "match_mode": "regex_full" }
 ```
 
-does **not**, because it is treated like `^(?:there)$`.
+does **not**, because it is treated like `^(?:there)$`. Use `contains` or `regex_search` if you want a substring-style match.
 
 ### Regex match not working in stdout_match
 

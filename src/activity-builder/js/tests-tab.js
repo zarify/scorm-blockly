@@ -5,6 +5,13 @@
 import { getConfig, notifyChange, onConfigChange, Blockly } from './builder-app.js';
 import { BLOCK_PATTERN_TYPE } from '../../shared/block-pattern.js';
 import {
+  FIELD_VALUE_MATCH_MODE_OPTIONS,
+  getCanonicalRegexFlags,
+  isRegexFieldValueMatchMode,
+  normalizeFieldValueCaseSensitivity,
+  normalizeFieldValueMatchMode,
+} from '../../shared/field-value-matching.js';
+import {
   createConditionSuggestionIds,
   getConditionBlockDefinitionMetadata,
   getSuggestedConditionBlockTypes,
@@ -164,6 +171,15 @@ function renderTestEditor() {
       type: v,
       points: getTestPoints(tc),
       feedback_on_fail: tc.feedback_on_fail,
+    };
+    const bindCheckbox = (selector, field) => {
+      const el = container.querySelector(selector);
+      if (el) {
+        el.addEventListener('change', (e) => {
+          condition[field] = e.target.checked;
+          onChange(condition, { rerenderBuilder: false });
+        });
+      }
     };
     if (v === 'stdout_match') {
       newTc.prompt_inputs = getPromptInputs(tc);
@@ -350,6 +366,18 @@ function renderSimpleConditionFields(container, condition, onChange) {
   const outerBlockMetadata = getConditionBlockDefinitionMetadata(Blockly, condition.outer_type);
   const innerBlockMetadata = getConditionBlockDefinitionMetadata(Blockly, condition.inner_type);
   const conditionBlockMetadata = getConditionBlockDefinitionMetadata(Blockly, condition.block_type);
+  const descendantMatchMode = normalizeFieldValueMatchMode(condition.match_mode);
+  const descendantCaseSensitive = normalizeFieldValueCaseSensitivity(
+    condition.case_sensitive,
+    condition.regex_flags,
+  );
+  const descendantRegexFlags = getCanonicalRegexFlags(condition.regex_flags);
+  const fieldMatchMode = normalizeFieldValueMatchMode(condition.match_mode);
+  const fieldCaseSensitive = normalizeFieldValueCaseSensitivity(
+    condition.case_sensitive,
+    condition.regex_flags,
+  );
+  const fieldRegexFlags = getCanonicalRegexFlags(condition.regex_flags);
 
   const bind = (selector, field, transform, options = {}) => {
     const el = container.querySelector(selector);
@@ -360,6 +388,15 @@ function renderSimpleConditionFields(container, condition, onChange) {
         condition[field] = nextValue;
         options.afterChange?.(condition, nextValue);
         onChange(condition, { rerenderBuilder: Boolean(options.rerenderBuilder) });
+      });
+    }
+  };
+  const bindCheckbox = (selector, field) => {
+    const el = container.querySelector(selector);
+    if (el) {
+      el.addEventListener('change', (e) => {
+        condition[field] = e.target.checked;
+        onChange(condition, { rerenderBuilder: false });
       });
     }
   };
@@ -394,12 +431,15 @@ function renderSimpleConditionFields(container, condition, onChange) {
         <small>Use the input on the outer block. For example, <code>variables_set.VALUE</code> matches the whole value subtree, while <code>text_prompt_ext.TEXT</code> matches the prompt message input.</small>
         <input type="text" class="cond-dfn" list="${datalistIds.fieldNames}" value="${escapeAttr(condition.field_name || '')}" placeholder="Matched descendant field name (optional)" style="width:100%;margin:4px 0">
         ${condition.field_name ? `
-        <input type="text" class="cond-dev" value="${escapeAttr(String(condition.expected_value ?? ''))}" placeholder="${(condition.match_mode || 'exact') === 'regex' ? 'Regex pattern (e.g. Who.*\\?)' : 'Expected descendant field value'}" style="width:100%;margin-bottom:4px">
+        <input type="text" class="cond-dev" value="${escapeAttr(String(condition.expected_value ?? ''))}" placeholder="${escapeAttr(getFieldValueInputPlaceholder(descendantMatchMode, 'Expected descendant field value'))}" style="width:100%;margin-bottom:4px">
         <select class="cond-dmm" style="width:100%;margin-bottom:4px">
-          <option value="exact" ${(condition.match_mode || 'exact') === 'exact' ? 'selected' : ''}>Exact value</option>
-          <option value="regex" ${(condition.match_mode || 'exact') === 'regex' ? 'selected' : ''}>Regex (full match)</option>
+          ${renderFieldValueMatchModeOptions(descendantMatchMode)}
         </select>
-        ${(condition.match_mode || 'exact') === 'regex' ? `<input type="text" class="cond-drf" value="${escapeAttr(condition.regex_flags || '')}" placeholder="Regex flags (e.g. i)" style="width:100%;margin-bottom:4px">` : ''}
+        <label class="checkbox-label" style="margin:0 0 4px">
+          <input type="checkbox" class="cond-dcs" ${descendantCaseSensitive ? 'checked' : ''}>
+          Case sensitive
+        </label>
+        ${isRegexFieldValueMatchMode(descendantMatchMode) ? `<input type="text" class="cond-drf" value="${escapeAttr(descendantRegexFlags)}" placeholder="Extra regex flags (e.g. m)" style="width:100%;margin-bottom:4px">` : ''}
         <small>This value constraint applies only to matching <code>${escapeHtml(condition.inner_type || 'inner_type')}</code> descendants inside <code>${escapeHtml(condition.outer_type || 'outer_type')}.${escapeHtml(condition.input_name || 'input_name')}</code>.</small>
         ` : ''}
         ${outerBlockMetadata.inputNames.length > 0 ? `<small>Inputs on ${escapeHtml(condition.outer_type || 'this block')}: ${outerBlockMetadata.inputNames.join(', ')}. This works for statement inputs like DO and value inputs like VALUE or TEXT.</small>` : ''}
@@ -417,13 +457,16 @@ function renderSimpleConditionFields(container, condition, onChange) {
         </datalist>
         <input type="text" class="cond-bt" list="${datalistIds.blockTypes}" value="${escapeAttr(condition.block_type || '')}" placeholder="Block type" style="width:100%;margin-bottom:4px">
         <input type="text" class="cond-fn" list="${datalistIds.fieldNames}" value="${escapeAttr(condition.field_name || '')}" placeholder="Field name" style="width:100%;margin-bottom:4px">
-        <input type="text" class="cond-ev" value="${escapeAttr(String(condition.expected_value ?? ''))}" placeholder="${(condition.match_mode || 'exact') === 'regex' ? 'Regex pattern (e.g. Who.*\\?)' : 'Expected value'}" style="width:100%;margin-bottom:4px">
+        <input type="text" class="cond-ev" value="${escapeAttr(String(condition.expected_value ?? ''))}" placeholder="${escapeAttr(getFieldValueInputPlaceholder(fieldMatchMode, 'Expected value'))}" style="width:100%;margin-bottom:4px">
         <select class="cond-mm" style="width:100%;margin-bottom:4px">
-          <option value="exact" ${(condition.match_mode || 'exact') === 'exact' ? 'selected' : ''}>Exact value</option>
-          <option value="regex" ${(condition.match_mode || 'exact') === 'regex' ? 'selected' : ''}>Regex (full match)</option>
+          ${renderFieldValueMatchModeOptions(fieldMatchMode)}
         </select>
-        ${(condition.match_mode || 'exact') === 'regex' ? `<input type="text" class="cond-rf" value="${escapeAttr(condition.regex_flags || '')}" placeholder="Regex flags (e.g. i)" style="width:100%;margin-bottom:4px">` : ''}
-        <small>Regex mode matches the whole field value. Use <code>.*</code> as a wildcard and flags like <code>i</code> for case-insensitive matches.</small>
+        <label class="checkbox-label" style="margin:0 0 4px">
+          <input type="checkbox" class="cond-cs" ${fieldCaseSensitive ? 'checked' : ''}>
+          Case sensitive
+        </label>
+        ${isRegexFieldValueMatchMode(fieldMatchMode) ? `<input type="text" class="cond-rf" value="${escapeAttr(fieldRegexFlags)}" placeholder="Extra regex flags (e.g. m)" style="width:100%;margin-bottom:4px">` : ''}
+        <small>Choose exact, contains, regex full-match, or regex search. <code>i</code> is controlled by the case-sensitive checkbox.</small>
         ${conditionBlockMetadata.fieldNames.length > 0 ? `<small>Fields on ${escapeHtml(condition.block_type || 'this block')}: ${conditionBlockMetadata.fieldNames.join(', ')}</small>` : ''}
       `;
       break;
@@ -470,19 +513,23 @@ function renderSimpleConditionFields(container, condition, onChange) {
       if (!String(nextValue).trim()) {
         delete currentCondition.expected_value;
         delete currentCondition.match_mode;
+        delete currentCondition.case_sensitive;
         delete currentCondition.regex_flags;
       } else if (!currentCondition.match_mode) {
         currentCondition.match_mode = 'exact';
+        currentCondition.case_sensitive = true;
       }
     },
     rerenderBuilder: true,
   });
   bind('.cond-dev', 'expected_value');
   bind('.cond-dmm', 'match_mode', undefined, { event: 'change', rerenderBuilder: true });
+  bindCheckbox('.cond-dcs', 'case_sensitive');
   bind('.cond-drf', 'regex_flags');
   bind('.cond-fn', 'field_name');
   bind('.cond-ev', 'expected_value');
   bind('.cond-mm', 'match_mode', undefined, { event: 'change', rerenderBuilder: true });
+  bindCheckbox('.cond-cs', 'case_sensitive');
   bind('.cond-rf', 'regex_flags');
   bind('.cond-mn', 'min', (v) => parseInt(v) || 0);
   bind('.cond-mx', 'max', (v) => parseInt(v) || 10);
@@ -548,4 +595,22 @@ function getConditionTypeOptions(conditionTypes, legacyConditionTypes, currentTy
     ...conditionTypes,
     { value: currentType, label: legacyConditionTypes[currentType] || `${currentType} — legacy` },
   ];
+}
+
+function renderFieldValueMatchModeOptions(selectedMode) {
+  return FIELD_VALUE_MATCH_MODE_OPTIONS
+    .map((option) => `<option value="${option.value}" ${normalizeFieldValueMatchMode(selectedMode) === option.value ? 'selected' : ''}>${option.label}</option>`)
+    .join('');
+}
+
+function getFieldValueInputPlaceholder(matchMode, exactPlaceholder) {
+  switch (normalizeFieldValueMatchMode(matchMode)) {
+    case 'contains':
+      return 'Expected substring';
+    case 'regex_full':
+    case 'regex_search':
+      return 'Regex pattern (e.g. Who.*\\?)';
+    default:
+      return exactPlaceholder;
+  }
 }

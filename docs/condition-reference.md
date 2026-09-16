@@ -132,9 +132,10 @@ Passes if a block of `inner_type` appears anywhere inside a specific input subtr
 | `inner_type` | string | ✅ | The block type that should be inside |
 | `input_name` | string | ✅ | The input name on the outer block (e.g., `"DO"`, `"TEXT"`, `"VALUE"`) |
 | `field_name` | string | No | Field name on the matched descendant block |
-| `expected_value` | any | No | Exact value or regex pattern for the matched descendant field |
-| `match_mode` | string | No | `"exact"` (default) or `"regex"` |
-| `regex_flags` | string | No | JavaScript regex flags such as `"i"` |
+| `expected_value` | any | No | Exact value, substring, or regex pattern for the matched descendant field |
+| `match_mode` | string | No | `"exact"` (default), `"contains"`, `"regex_full"`, or `"regex_search"` |
+| `case_sensitive` | boolean | No | `true` by default. Set `false` for case-insensitive exact/contains/regex checks |
+| `regex_flags` | string | No | Extra JavaScript regex flags such as `"m"` or `"s"` (`"i"` is implied when `case_sensitive` is `false`) |
 
 **How it works:**
 
@@ -207,8 +208,8 @@ If you also provide `field_name`, the match is scoped to the descendant blocks o
   "input_name": "VALUE",
   "field_name": "TEXT",
   "expected_value": "Who.*\\?",
-  "match_mode": "regex",
-  "regex_flags": "i"
+  "match_mode": "regex_search",
+  "case_sensitive": false
 }
 ```
 
@@ -229,19 +230,22 @@ If you also provide `field_name`, the match is scoped to the descendant blocks o
 
 ### `block_field_value`
 
-Passes if any block of the specified type has a field whose value matches either an exact value or a full-match regex pattern.
+Passes if any block of the specified type has a field whose value matches an exact value, contains a substring, or matches a regex pattern.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `block_type` | string | ✅ | Blockly block type ID |
 | `field_name` | string | ✅ | Field name on the block (e.g., `"NUM"`, `"TEXT"`, `"OP"`, `"VAR"`) |
-| `expected_value` | any | ✅ | Exact value or regex pattern |
-| `match_mode` | string | No | `"exact"` (default) or `"regex"` |
-| `regex_flags` | string | No | JavaScript regex flags such as `"i"` |
+| `expected_value` | any | ✅ | Exact value, substring, or regex pattern |
+| `match_mode` | string | No | `"exact"` (default), `"contains"`, `"regex_full"`, or `"regex_search"` |
+| `case_sensitive` | boolean | No | `true` by default. Set `false` for case-insensitive matching |
+| `regex_flags` | string | No | Extra JavaScript regex flags such as `"m"` or `"s"` (`"i"` is implied when `case_sensitive` is `false`) |
 
-**How it works:** Iterates all blocks of the type, calls `block.getFieldValue(field_name)`, and either:
-- compares `String(actual) === String(expected)` in exact mode, or
-- applies a **full-match** regex in regex mode using `^(?:pattern)$`
+**How it works:** Iterates all blocks of the type, calls `block.getFieldValue(field_name)`, and then:
+- compares `String(actual) === String(expected)` in exact mode
+- checks `String(actual).includes(String(expected))` in contains mode
+- applies `^(?:pattern)$` in `regex_full` mode
+- applies a normal regex search in `regex_search` mode
 
 For Blockly variable dropdown fields such as `variables_set.VAR`, matching uses the **visible variable name** (for example `name` or `score`) rather than Blockly's internal generated variable id.
 
@@ -270,8 +274,8 @@ For Blockly variable dropdown fields such as `variables_set.VAR`, matching uses 
   "block_type": "text",
   "field_name": "TEXT",
   "expected_value": "Who.*\\?",
-  "match_mode": "regex",
-  "regex_flags": "i"
+  "match_mode": "regex_search",
+  "case_sensitive": false
 }
 
 // A math_arithmetic block uses addition
@@ -300,7 +304,7 @@ To assert a specific nested structure such as `name = input("Who's there?")`, co
       "block_type": "text",
       "field_name": "TEXT",
       "expected_value": "Who's there\\?",
-      "match_mode": "regex"
+      "match_mode": "regex_full"
     }
   ]
 }
@@ -316,7 +320,7 @@ If you want that check to stay scoped to the descendant under `variables_set.VAL
   "input_name": "VALUE",
   "field_name": "TEXT",
   "expected_value": "Who's there\\?",
-  "match_mode": "regex"
+  "match_mode": "regex_full"
 }
 ```
 
@@ -344,7 +348,7 @@ This is the most expressive matcher when you need to combine:
 - sequential `next` chains
 - nested statement/value inputs
 - wildcard gaps
-- exact or regex value checks on a specific matched block
+- exact, contains, regex full-match, or regex search checks on a specific matched block
 
 **Examples:**
 
@@ -357,8 +361,8 @@ This is the most expressive matcher when you need to combine:
     "text_block_id": {
       "TEXT": {
         "expected_value": "Who.*\\?",
-        "match_mode": "regex",
-        "regex_flags": "i"
+        "match_mode": "regex_search",
+        "case_sensitive": false
       }
     }
   }

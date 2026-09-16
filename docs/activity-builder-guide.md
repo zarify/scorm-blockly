@@ -182,7 +182,7 @@ For conditions that are awkward to express with simple predicates, use **Visual 
 - Build a pattern with real Blockly blocks in the pattern workspace
 - Add **any block(s)** to match gaps in a statement chain
 - Add **any value** to match any value subtree
-- Select a block in the pattern workspace to add optional exact/regex field constraints
+- Select a block in the pattern workspace to add optional exact, contains, regex full-match, or regex search field constraints
 
 The authoring UI now treats **Visual block pattern** as the primary way to express:
 - sequential block connections
