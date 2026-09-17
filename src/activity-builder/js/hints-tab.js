@@ -185,6 +185,31 @@ function renderHintEditor() {
         <input type="number" id="hint-after-attempts" value="${hint.trigger.after_attempts || 0}" min="0">
       </div>
     </div>
+    <div class="form-row" style="margin-top:8px">
+      <div class="form-group" style="flex:1">
+        <label>Style</label>
+        <select id="hint-style">
+          <option value="" ${!hint.style ? 'selected' : ''}>Default</option>
+          <option value="success" ${hint.style === 'success' ? 'selected' : ''}>Success</option>
+          <option value="warning" ${hint.style === 'warning' ? 'selected' : ''}>Warning</option>
+          <option value="error" ${hint.style === 'error' ? 'selected' : ''}>Error</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex:1">
+        <label>Auto-invalidate</label>
+        <label class="checkbox-label" style="display:block;margin-top:6px">
+          <input type="checkbox" id="hint-invalidate-on-false" ${hint.trigger?.invalidate_on_condition_false ? 'checked' : ''}>
+          Invalidate when condition becomes false
+        </label>
+      </div>
+      <div class="form-group" style="flex:1">
+        <label>Manual dismiss</label>
+        <label class="checkbox-label" style="display:block;margin-top:6px">
+          <input type="checkbox" id="hint-allow-manual-dismiss" ${hint.allow_manual_dismiss === false ? '' : 'checked'}>
+          Allow manual dismiss (shows ✕)
+        </label>
+      </div>
+    </div>
     <label class="checkbox-label">
       <input type="checkbox" id="hint-show-once" ${hint.show_once ? 'checked' : ''} ${getHintDisplayMode(hint) === 'checklist' ? 'disabled' : ''}>
       ${getHintDisplayMode(hint) === 'checklist'
@@ -220,6 +245,9 @@ function renderHintEditor() {
   bindField('hint-priority', (v) => { hint.priority = parseInt(v) || 1; });
   bindField('hint-delay', (v) => { hint.delay_seconds = parseInt(v) || 0; });
   bindField('hint-after-attempts', (v) => { hint.trigger.after_attempts = parseInt(v) || 0; });
+  bindField('hint-style', (v) => { hint.style = v || undefined; });
+  bindCheckboxField('hint-invalidate-on-false', (v) => { if (!hint.trigger) hint.trigger = {}; hint.trigger.invalidate_on_condition_false = v; });
+  bindCheckboxField('hint-allow-manual-dismiss', (v) => { hint.allow_manual_dismiss = !!v; });
   bindCheckboxField('hint-show-once', (v) => { hint.show_once = v; });
 }
 

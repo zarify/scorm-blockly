@@ -80,13 +80,14 @@ body {
   margin-bottom: 4px;
 }
 
-/* Hint panel */
-.hint-panel {
-  border-top: 1px solid #ddd;
-  max-height: 200px;
+/* Hints inline within instructions */
+.hints-inline {
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #eee;
 }
 
-.hint-panel h3 {
+.hints-inline h3 {
   font-size: 15px;
   margin-bottom: 8px;
 }
@@ -98,8 +99,8 @@ body {
 }
 
 .hint-section + .hint-section {
-  margin-top: 16px;
-  padding-top: 16px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid #e5e7eb;
 }
 
@@ -112,6 +113,25 @@ body {
   position: relative;
   font-size: 14px;
   line-height: 1.5;
+}
+
+/* Style variants for hints (configurable via hint.style) */
+.hint-card.hint-success, .hint-card.is-success {
+  background: #e8f5e9;
+  border-color: #c8e6c9;
+  color: #2e7d32;
+}
+
+.hint-card.hint-warning {
+  background: #fff8e1;
+  border-color: #ffecb3;
+  color: #8a6d3b;
+}
+
+.hint-card.hint-error {
+  background: #ffebee;
+  border-color: #ffcdd2;
+  color: #b71c1c;
 }
 
 .hint-dismiss {

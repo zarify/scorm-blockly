@@ -35,6 +35,8 @@ export function evaluateHints(hints, workspace, state, event) {
         id: hint.id,
         message: hint.message,
         priority: hint.priority || 1,
+        display_mode: hint.display_mode || 'triggered',
+        style: hint.style || null,
       });
     }
 
@@ -75,9 +77,18 @@ function evaluateHint(hint, workspace, state, event) {
     if (!result.passed) {
       // Condition not met — clear the firstTriggered timestamp
       state.firstTriggered.delete(hint.id);
-      if (!hint.show_once) {
-        state.dismissed.delete(hint.id);
+
+      // If configured, mark this hint dismissed/invalidated when its condition becomes false
+      if (trigger.invalidate_on_condition_false) {
+        state.dismissed.add(hint.id);
+        // Also clear any triggered/completed mark so checklist items un-check
+        state.triggered.delete(hint.id);
+      } else {
+        if (!hint.show_once) {
+          state.dismissed.delete(hint.id);
+        }
       }
+
       return { visible: false, pendingDelayMs: null };
     }
   }
