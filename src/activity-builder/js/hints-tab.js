@@ -5,6 +5,13 @@
 import { getConfig, notifyChange, onConfigChange, Blockly } from './builder-app.js';
 import { BLOCK_PATTERN_TYPE } from '../../shared/block-pattern.js';
 import {
+  FIELD_VALUE_MATCH_MODE_OPTIONS,
+  getCanonicalRegexFlags,
+  isRegexFieldValueMatchMode,
+  normalizeFieldValueCaseSensitivity,
+  normalizeFieldValueMatchMode,
+} from '../../shared/field-value-matching.js';
+import {
   createConditionSuggestionIds,
   getConditionBlockDefinitionMetadata,
   getSuggestedConditionBlockTypes,
@@ -178,6 +185,31 @@ function renderHintEditor() {
         <input type="number" id="hint-after-attempts" value="${hint.trigger.after_attempts || 0}" min="0">
       </div>
     </div>
+    <div class="form-row" style="margin-top:8px">
+      <div class="form-group" style="flex:1">
+        <label>Style</label>
+        <select id="hint-style">
+          <option value="" ${!hint.style ? 'selected' : ''}>Default</option>
+          <option value="success" ${hint.style === 'success' ? 'selected' : ''}>Success</option>
+          <option value="warning" ${hint.style === 'warning' ? 'selected' : ''}>Warning</option>
+          <option value="error" ${hint.style === 'error' ? 'selected' : ''}>Error</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex:1">
+        <label>Auto-invalidate</label>
+        <label class="checkbox-label" style="display:block;margin-top:6px">
+          <input type="checkbox" id="hint-invalidate-on-false" ${hint.trigger?.invalidate_on_condition_false ? 'checked' : ''}>
+          Invalidate when condition becomes false
+        </label>
+      </div>
+      <div class="form-group" style="flex:1">
+        <label>Manual dismiss</label>
+        <label class="checkbox-label" style="display:block;margin-top:6px">
+          <input type="checkbox" id="hint-allow-manual-dismiss" ${hint.allow_manual_dismiss === false ? '' : 'checked'}>
+          Allow manual dismiss (shows ✕)
+        </label>
+      </div>
+    </div>
     <label class="checkbox-label">
       <input type="checkbox" id="hint-show-once" ${hint.show_once ? 'checked' : ''} ${getHintDisplayMode(hint) === 'checklist' ? 'disabled' : ''}>
       ${getHintDisplayMode(hint) === 'checklist'
@@ -213,6 +245,9 @@ function renderHintEditor() {
   bindField('hint-priority', (v) => { hint.priority = parseInt(v) || 1; });
   bindField('hint-delay', (v) => { hint.delay_seconds = parseInt(v) || 0; });
   bindField('hint-after-attempts', (v) => { hint.trigger.after_attempts = parseInt(v) || 0; });
+  bindField('hint-style', (v) => { hint.style = v || undefined; });
+  bindCheckboxField('hint-invalidate-on-false', (v) => { if (!hint.trigger) hint.trigger = {}; hint.trigger.invalidate_on_condition_false = v; });
+  bindCheckboxField('hint-allow-manual-dismiss', (v) => { hint.allow_manual_dismiss = !!v; });
   bindCheckboxField('hint-show-once', (v) => { hint.show_once = v; });
 }
 
@@ -259,6 +294,18 @@ function renderConditionFields(container, condition, onChange) {
   const outerBlockMetadata = getConditionBlockDefinitionMetadata(Blockly, condition.outer_type);
   const innerBlockMetadata = getConditionBlockDefinitionMetadata(Blockly, condition.inner_type);
   const conditionBlockMetadata = getConditionBlockDefinitionMetadata(Blockly, condition.block_type);
+  const descendantMatchMode = normalizeFieldValueMatchMode(condition.match_mode);
+  const descendantCaseSensitive = normalizeFieldValueCaseSensitivity(
+    condition.case_sensitive,
+    condition.regex_flags,
+  );
+  const descendantRegexFlags = getCanonicalRegexFlags(condition.regex_flags);
+  const fieldMatchMode = normalizeFieldValueMatchMode(condition.match_mode);
+  const fieldCaseSensitive = normalizeFieldValueCaseSensitivity(
+    condition.case_sensitive,
+    condition.regex_flags,
+  );
+  const fieldRegexFlags = getCanonicalRegexFlags(condition.regex_flags);
   let html = '';
 
   switch (condition.type) {
@@ -325,21 +372,27 @@ function renderConditionFields(container, condition, onChange) {
         ${condition.field_name
           ? `
         <div class="condition-row">
-          <label>${(condition.match_mode || 'exact') === 'regex' ? 'Regex pattern:' : 'Expected descendant field value:'}</label>
-          <input type="text" class="cond-desc-expected" value="${escapeAttr(String(condition.expected_value ?? ''))}" placeholder="${(condition.match_mode || 'exact') === 'regex' ? 'e.g. Who.*\\?' : `e.g. Who's there?`}">
+          <label>${getFieldValueInputLabel(descendantMatchMode, 'Expected descendant field value:', 'Expected descendant substring:')}</label>
+          <input type="text" class="cond-desc-expected" value="${escapeAttr(String(condition.expected_value ?? ''))}" placeholder="${escapeAttr(getFieldValueInputPlaceholder(descendantMatchMode, `e.g. Who's there?`))}">
         </div>
         <div class="condition-row">
-          <label>Descendant value match mode:</label>
+          <label>Descendant value comparison:</label>
           <select class="cond-desc-match-mode">
-            <option value="exact" ${(condition.match_mode || 'exact') === 'exact' ? 'selected' : ''}>Exact value</option>
-            <option value="regex" ${(condition.match_mode || 'exact') === 'regex' ? 'selected' : ''}>Regex (full match)</option>
+            ${renderFieldValueMatchModeOptions(descendantMatchMode)}
           </select>
         </div>
-        ${(condition.match_mode || 'exact') === 'regex' ? `
+        <label class="checkbox-label">
+          <input type="checkbox" class="cond-desc-case-sensitive" ${descendantCaseSensitive ? 'checked' : ''}>
+          Case sensitive
+        </label>
+        ${isRegexFieldValueMatchMode(descendantMatchMode) ? `
         <div class="condition-row">
-          <label>Regex flags:</label>
-          <input type="text" class="cond-desc-regex-flags" value="${escapeAttr(condition.regex_flags || '')}" placeholder="e.g. i">
-        </div>` : ''}
+          <label>Extra regex flags:</label>
+          <input type="text" class="cond-desc-regex-flags" value="${escapeAttr(descendantRegexFlags)}" placeholder="e.g. m">
+        </div>
+        <p style="font-size:12px;color:#666;margin:8px 0 0">
+          <code>i</code> is controlled by the case-sensitive checkbox. Use regex search to match anywhere inside the field value.
+        </p>` : ''}
         <p style="font-size:12px;color:#666;margin:8px 0 0">
           This value constraint is checked only on matching <code>${escapeHtml(condition.inner_type || 'inner_type')}</code> descendants inside
           <code>${escapeHtml(condition.outer_type || 'outer_type')}.${escapeHtml(condition.input_name || 'input_name')}</code>.
@@ -373,24 +426,27 @@ function renderConditionFields(container, condition, onChange) {
           <input type="text" class="cond-field-name" list="${datalistIds.fieldNames}" value="${escapeAttr(condition.field_name || '')}">
         </div>
         <div class="condition-row">
-          <label>${(condition.match_mode || 'exact') === 'regex' ? 'Regex pattern:' : 'Expected value:'}</label>
-          <input type="text" class="cond-expected" value="${escapeAttr(String(condition.expected_value || ''))}" placeholder="${(condition.match_mode || 'exact') === 'regex' ? 'e.g. Who.*\\?' : 'e.g. Hello'}">
+          <label>${getFieldValueInputLabel(fieldMatchMode, 'Expected value:', 'Expected substring:')}</label>
+          <input type="text" class="cond-expected" value="${escapeAttr(String(condition.expected_value || ''))}" placeholder="${escapeAttr(getFieldValueInputPlaceholder(fieldMatchMode, 'e.g. Hello'))}">
         </div>
         <div class="condition-row">
-          <label>Value match mode:</label>
+          <label>Value comparison:</label>
           <select class="cond-match-mode">
-            <option value="exact" ${(condition.match_mode || 'exact') === 'exact' ? 'selected' : ''}>Exact value</option>
-            <option value="regex" ${(condition.match_mode || 'exact') === 'regex' ? 'selected' : ''}>Regex (full match)</option>
+            ${renderFieldValueMatchModeOptions(fieldMatchMode)}
           </select>
         </div>
-        ${(condition.match_mode || 'exact') === 'regex' ? `
+        <label class="checkbox-label">
+          <input type="checkbox" class="cond-case-sensitive" ${fieldCaseSensitive ? 'checked' : ''}>
+          Case sensitive
+        </label>
+        ${isRegexFieldValueMatchMode(fieldMatchMode) ? `
         <div class="condition-row">
-          <label>Regex flags:</label>
-          <input type="text" class="cond-regex-flags" value="${escapeAttr(condition.regex_flags || '')}" placeholder="e.g. i">
+          <label>Extra regex flags:</label>
+          <input type="text" class="cond-regex-flags" value="${escapeAttr(fieldRegexFlags)}" placeholder="e.g. m">
         </div>` : ''}
         <p style="font-size:12px;color:#666;margin:8px 0 0">
-          Regex mode matches the <strong>entire</strong> field value, not a substring. Use patterns like
-          <code>.*</code> as a wildcard, or flags like <code>i</code> for case-insensitive matching.
+          Choose <strong>contains</strong> for substring matching, <strong>regex (full match)</strong> to match the whole field value,
+          or <strong>regex (search)</strong> to match anywhere inside it.
         </p>
         ${conditionBlockMetadata.fieldNames.length > 0
           ? `<p style="font-size:12px;color:#666;margin:8px 0 0">Fields on ${escapeHtml(condition.block_type || 'this block')}: ${conditionBlockMetadata.fieldNames.join(', ')}</p>`
@@ -494,6 +550,15 @@ function bindConditionInputs(container, condition, onChange) {
       });
     }
   };
+  const bindCheckbox = (selector, field) => {
+    const el = container.querySelector(selector);
+    if (el) {
+      el.addEventListener('change', (e) => {
+        condition[field] = e.target.checked;
+        onChange(condition);
+      });
+    }
+  };
 
   bindInput('.cond-block-type', 'block_type', undefined, {
     event: condition.type === 'block_field_value' ? 'change' : 'input',
@@ -517,9 +582,11 @@ function bindConditionInputs(container, condition, onChange) {
       if (!String(nextValue).trim()) {
         delete currentCondition.expected_value;
         delete currentCondition.match_mode;
+        delete currentCondition.case_sensitive;
         delete currentCondition.regex_flags;
       } else if (!currentCondition.match_mode) {
         currentCondition.match_mode = 'exact';
+        currentCondition.case_sensitive = true;
       }
     },
     rerenderFields: true,
@@ -529,6 +596,7 @@ function bindConditionInputs(container, condition, onChange) {
     event: 'change',
     rerenderFields: true,
   });
+  bindCheckbox('.cond-desc-case-sensitive', 'case_sensitive');
   bindInput('.cond-desc-regex-flags', 'regex_flags');
   bindInput('.cond-field-name', 'field_name');
   bindInput('.cond-expected', 'expected_value');
@@ -536,6 +604,7 @@ function bindConditionInputs(container, condition, onChange) {
     event: 'change',
     rerenderFields: true,
   });
+  bindCheckbox('.cond-case-sensitive', 'case_sensitive');
   bindInput('.cond-regex-flags', 'regex_flags');
   bindInput('.cond-min', 'min', (v) => parseInt(v) || 0);
   bindInput('.cond-max', 'max', (v) => parseInt(v) || 10);
@@ -593,4 +662,34 @@ function escapeHtml(str) {
 
 function escapeAttr(str) {
   return String(str).replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+function renderFieldValueMatchModeOptions(selectedMode) {
+  return FIELD_VALUE_MATCH_MODE_OPTIONS
+    .map((option) => `<option value="${option.value}" ${normalizeFieldValueMatchMode(selectedMode) === option.value ? 'selected' : ''}>${option.label}</option>`)
+    .join('');
+}
+
+function getFieldValueInputLabel(matchMode, exactLabel, containsLabel) {
+  switch (normalizeFieldValueMatchMode(matchMode)) {
+    case 'contains':
+      return containsLabel;
+    case 'regex_full':
+    case 'regex_search':
+      return 'Regex pattern:';
+    default:
+      return exactLabel;
+  }
+}
+
+function getFieldValueInputPlaceholder(matchMode, exactPlaceholder) {
+  switch (normalizeFieldValueMatchMode(matchMode)) {
+    case 'contains':
+      return 'e.g. Hello';
+    case 'regex_full':
+    case 'regex_search':
+      return 'e.g. Who.*\\?';
+    default:
+      return exactPlaceholder;
+  }
 }

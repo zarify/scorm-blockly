@@ -14,7 +14,8 @@ let hintPanel = null;
 let hintUiOptions = { enabled: true, legacyDisplayMode: 'triggered' };
 let debounceTimer = null;
 let pendingEvaluationTimer = null;
-const DEBOUNCE_MS = 2000;
+const DEFAULT_DEBOUNCE_MS = 250; // shorter default to reduce perceived lag
+let debounceMs = DEFAULT_DEBOUNCE_MS;
 
 /**
  * Initialize the hint engine.
@@ -31,6 +32,7 @@ export function initHintEngine(hints, blocklyWorkspace, panelElement, options = 
     enabled: options.enabled !== false,
     legacyDisplayMode: options.legacyDisplayMode === 'checklist' ? 'checklist' : 'triggered',
   };
+  debounceMs = typeof options.debounceMs === 'number' ? options.debounceMs : DEFAULT_DEBOUNCE_MS;
   hintState = createHintState();
   clearTimeout(debounceTimer);
   clearScheduledEvaluation();
@@ -43,17 +45,15 @@ export function initHintEngine(hints, blocklyWorkspace, panelElement, options = 
     return;
   }
 
-  // Listen for workspace changes
+  // Listen for workspace changes — respond to most events so field edits
+  // (e.g. text field updates, variable renames) trigger evaluations immediately.
+  // Ignore only harmless selection UI events to avoid noisy re-evaluations.
   workspace.addChangeListener((event) => {
-    // Only respond to meaningful changes
-    if (
-      event.type === Blockly.Events.BLOCK_MOVE ||
-      event.type === Blockly.Events.BLOCK_CHANGE ||
-      event.type === Blockly.Events.BLOCK_CREATE ||
-      event.type === Blockly.Events.BLOCK_DELETE
-    ) {
-      debouncedEvaluate('workspace_change');
-    }
+    // If this is a UI event for selection changes, ignore it
+    if (event.type === Blockly.Events.UI && event.element === 'selected') return;
+
+    // Debounce and evaluate for any other event
+    debouncedEvaluate('workspace_change');
   });
 
   evaluate('workspace_change', { resetTransientDismissals: true });
@@ -62,7 +62,7 @@ export function initHintEngine(hints, blocklyWorkspace, panelElement, options = 
 function debouncedEvaluate(event) {
   clearTimeout(debounceTimer);
   clearScheduledEvaluation();
-  debounceTimer = setTimeout(() => evaluate(event, { resetTransientDismissals: true }), DEBOUNCE_MS);
+  debounceTimer = setTimeout(() => evaluate(event, { resetTransientDismissals: true }), debounceMs);
 }
 
 /**
@@ -140,9 +140,14 @@ function renderHints(visibleHints) {
 
   const checklistHints = hintConfigs.filter((hint) => getHintDisplayMode(hint) === 'checklist');
   const checklistHintIds = new Set(checklistHints.map((hint) => hint.id));
-  const activeHints = visibleHints.filter((hint) => !checklistHintIds.has(hint.id));
 
-  if (checklistHints.length === 0 && activeHints.length === 0) {
+  // Build a quick map of visible hints by id for fast lookup
+  const visibleMap = new Map(visibleHints.map((h) => [h.id, h]));
+
+  // Determine if there's anything to show
+  const nonChecklistDefined = hintConfigs.filter((hint) => !checklistHintIds.has(hint.id));
+  const anyNonChecklistVisible = nonChecklistDefined.some((h) => visibleMap.has(h.id));
+  if (checklistHints.length === 0 && !anyNonChecklistVisible) {
     hintPanel.style.display = 'none';
     hintPanel.innerHTML = '';
     return;
@@ -151,22 +156,35 @@ function renderHints(visibleHints) {
   hintPanel.style.display = '';
   const sections = [];
 
-  if (activeHints.length > 0) {
-    sections.push(`
-      <section class="hint-section">
-        <h3>💡 Hints</h3>
-        ${activeHints
-          .map(
-            (hint) => `
-          <div class="hint-card" data-hint-id="${hint.id}">
-            <div class="hint-message">${escapeHtml(hint.message)}</div>
-            <button class="hint-dismiss" data-hint-id="${escapeAttr(hint.id)}" title="Dismiss hint">✕</button>
-          </div>
-        `
-          )
-          .join('')}
-      </section>
-    `);
+  // Render non-checklist hints inline in the order they appear in hintConfigs
+  if (nonChecklistDefined.length > 0) {
+    sections.push(`<section class="hint-section"><h3>💡 Hints</h3>`);
+
+    sections.push(
+      nonChecklistDefined
+        .map((cfg) => {
+          const visible = visibleMap.get(cfg.id);
+          if (!visible) return null; // not currently visible, don't render a gap
+
+          const styleClass = cfg.style ? ` hint-${cfg.style}` : '';
+          const successClass = (cfg.display_mode === 'checklist' && hintState?.triggered.has(cfg.id)) ? ' is-success' : '';
+
+          // For triggered (hidden-until-fired) hints we do not render a manual dismiss button;
+          // they obey configured rules (show_once, invalidate_on_condition_false, etc.)
+          const allowManualDismiss = cfg.allow_manual_dismiss !== false && getHintDisplayMode(cfg) !== 'triggered';
+
+          return `
+            <div class="hint-card${styleClass}${successClass}" data-hint-id="${cfg.id}">
+              <div class="hint-message">${escapeHtml(visible.message)}</div>
+              ${allowManualDismiss ? `<button class="hint-dismiss" data-hint-id="${escapeAttr(cfg.id)}" title="Dismiss hint">✕</button>` : ''}
+            </div>
+          `;
+        })
+        .filter(Boolean)
+        .join(''),
+    );
+
+    sections.push(`</section>`);
   }
 
   if (checklistHints.length > 0) {
@@ -175,6 +193,7 @@ function renderHints(visibleHints) {
 
   hintPanel.innerHTML = sections.join('');
 
+  // Wire up dismiss handlers only for buttons that exist (manual dismiss is optional)
   hintPanel.querySelectorAll('.hint-dismiss').forEach((button) => {
     button.addEventListener('click', () => {
       dismissHint(button.dataset.hintId);

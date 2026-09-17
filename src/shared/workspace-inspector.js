@@ -6,6 +6,10 @@ import {
   registerBlockPatternBlocks,
 } from './block-pattern.js';
 import { getComparableFieldValue } from './blockly-field-values.js';
+import {
+  createFieldValueMatcher,
+  normalizeFieldValueCaseSensitivity,
+} from './field-value-matching.js';
 
 registerBlockPatternBlocks(Blockly);
 
@@ -98,7 +102,13 @@ function evalBlockNested(workspace, condition) {
     ? createFieldValueMatcher(
         condition.match_mode || 'exact',
         String(condition.expected_value ?? ''),
-        condition.regex_flags || '',
+        {
+          caseSensitive: normalizeFieldValueCaseSensitivity(
+            condition.case_sensitive,
+            condition.regex_flags,
+          ),
+          regexFlags: condition.regex_flags || '',
+        },
       )
     : null;
 
@@ -184,7 +194,13 @@ function evalBlockFieldValue(workspace, condition) {
   const matchMode = condition.match_mode || 'exact';
   const regexFlags = condition.regex_flags || '';
   const expectedValue = String(condition.expected_value ?? '');
-  const matcher = createFieldValueMatcher(matchMode, expectedValue, regexFlags);
+  const matcher = createFieldValueMatcher(matchMode, expectedValue, {
+    caseSensitive: normalizeFieldValueCaseSensitivity(
+      condition.case_sensitive,
+      condition.regex_flags,
+    ),
+    regexFlags,
+  });
 
   if (!matcher.valid) {
     return {
@@ -356,7 +372,13 @@ function matchPatternBlock(patternBlock, actualBlock, fieldConstraints) {
     const matcher = createFieldValueMatcher(
       constraint.match_mode || 'exact',
       String(constraint.expected_value ?? ''),
-      constraint.regex_flags || '',
+      {
+        caseSensitive: normalizeFieldValueCaseSensitivity(
+          constraint.case_sensitive,
+          constraint.regex_flags,
+        ),
+        regexFlags: constraint.regex_flags || '',
+      },
     );
     if (!matcher.valid || !matcher.matches(String(value))) {
       return false;
@@ -384,28 +406,4 @@ function matchPatternBlock(patternBlock, actualBlock, fieldConstraints) {
   }
 
   return true;
-}
-
-function createFieldValueMatcher(matchMode, expectedValue, regexFlags) {
-  if (matchMode === 'regex') {
-    try {
-      const regex = new RegExp(`^(?:${expectedValue})$`, regexFlags);
-      return {
-        valid: true,
-        matches: (actualValue) => regex.test(actualValue),
-        description: `matches /${expectedValue}/${regexFlags}`,
-      };
-    } catch (err) {
-      return {
-        valid: false,
-        detail: `Invalid regex /${expectedValue}/${regexFlags}: ${err.message}`,
-      };
-    }
-  }
-
-  return {
-    valid: true,
-    matches: (actualValue) => actualValue === expectedValue,
-    description: `= "${expectedValue}"`,
-  };
 }

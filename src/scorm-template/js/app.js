@@ -51,6 +51,7 @@ async function init() {
   initHintEngine(config.hints || [], getWorkspace(), hintPanel, {
     enabled: areHintsEnabled(config),
     legacyDisplayMode: getLegacyHintDisplayMode(config),
+    debounceMs: config.ui_settings?.hint_debounce_ms ?? 250,
   });
 
   // 6. Attach event handlers

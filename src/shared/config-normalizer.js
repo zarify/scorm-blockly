@@ -1,7 +1,6 @@
 import { getDefaultCategoryColour } from './blockly-toolbox.js';
 import { BLOCK_PATTERN_TYPE } from './block-pattern.js';
 import {
-  VALID_FIELD_VALUE_MATCH_MODES,
   VALID_CONDITION_TYPES,
   VALID_HINT_DISPLAY_MODES,
   VALID_HINT_EVENTS,
@@ -12,6 +11,11 @@ import {
   validateTestCaseConfig,
   validateToolboxCategoryConfig,
 } from './config-validator.js';
+import {
+  getCanonicalRegexFlags,
+  normalizeFieldValueCaseSensitivity,
+  normalizeFieldValueMatchMode,
+} from './field-value-matching.js';
 import { getPromptInputs, getTestPoints, normalizeTestConfig } from './test-config.js';
 
 /**
@@ -276,6 +280,12 @@ function normalizeDraftCondition(condition) {
         lower_type: asStringOr(condition.lower_type, ''),
       };
     case 'block_nested':
+      {
+        const matchMode = normalizeFieldValueMatchMode(condition.match_mode);
+        const caseSensitive = normalizeFieldValueCaseSensitivity(
+          condition.case_sensitive,
+          condition.regex_flags,
+        );
       return {
         type: condition.type,
         outer_type: asStringOr(condition.outer_type, ''),
@@ -287,27 +297,23 @@ function normalizeDraftCondition(condition) {
         ...(condition.expected_value !== undefined
           ? { expected_value: condition.expected_value ?? '' }
           : {}),
-        ...(condition.match_mode !== undefined
-          ? {
-              match_mode: VALID_FIELD_VALUE_MATCH_MODES.includes(condition.match_mode)
-                ? condition.match_mode
-                : 'exact',
-            }
-          : {}),
-        ...(condition.regex_flags !== undefined
-          ? { regex_flags: asStringOr(condition.regex_flags, '') }
-          : {}),
+        match_mode: matchMode,
+        case_sensitive: caseSensitive,
+        regex_flags: getCanonicalRegexFlags(condition.regex_flags),
       };
+      }
     case 'block_field_value':
       return {
         type: condition.type,
         block_type: asStringOr(condition.block_type, ''),
         field_name: asStringOr(condition.field_name, ''),
         expected_value: condition.expected_value ?? '',
-        match_mode: VALID_FIELD_VALUE_MATCH_MODES.includes(condition.match_mode)
-          ? condition.match_mode
-          : 'exact',
-        regex_flags: asStringOr(condition.regex_flags, ''),
+        match_mode: normalizeFieldValueMatchMode(condition.match_mode),
+        case_sensitive: normalizeFieldValueCaseSensitivity(
+          condition.case_sensitive,
+          condition.regex_flags,
+        ),
+        regex_flags: getCanonicalRegexFlags(condition.regex_flags),
       };
     case BLOCK_PATTERN_TYPE:
       return {
@@ -369,8 +375,15 @@ function normalizePublishCondition(condition) {
         const fieldName = asStringOr(condition.field_name, '').trim();
         const hasScopedValueConstraint = fieldName !== ''
           || condition.expected_value !== undefined
-          || condition.match_mode === 'regex'
-          || asStringOr(condition.regex_flags, '') !== '';
+          || normalizeFieldValueMatchMode(condition.match_mode) !== 'exact'
+          || normalizeFieldValueCaseSensitivity(condition.case_sensitive, condition.regex_flags) === false
+          || getCanonicalRegexFlags(condition.regex_flags) !== '';
+        const matchMode = normalizeFieldValueMatchMode(condition.match_mode);
+        const caseSensitive = normalizeFieldValueCaseSensitivity(
+          condition.case_sensitive,
+          condition.regex_flags,
+        );
+        const regexFlags = getCanonicalRegexFlags(condition.regex_flags);
       return {
         type,
         outer_type: asStringOr(condition.outer_type, ''),
@@ -380,23 +393,37 @@ function normalizePublishCondition(condition) {
         ...(hasScopedValueConstraint && condition.expected_value !== undefined
           ? { expected_value: condition.expected_value }
           : {}),
-        ...(hasScopedValueConstraint && condition.match_mode !== undefined
-          ? { match_mode: asStringOr(condition.match_mode, '') }
+        ...(hasScopedValueConstraint && (condition.match_mode !== undefined || matchMode !== 'exact')
+          ? { match_mode: matchMode }
           : {}),
-        ...(hasScopedValueConstraint && condition.regex_flags !== undefined
-          ? { regex_flags: asStringOr(condition.regex_flags, '') }
+        ...(hasScopedValueConstraint && (!caseSensitive || condition.case_sensitive !== undefined || String(condition.regex_flags ?? '').includes('i'))
+          ? { case_sensitive: caseSensitive }
+          : {}),
+        ...(hasScopedValueConstraint && (condition.regex_flags !== undefined || regexFlags !== '')
+          ? { regex_flags: regexFlags }
           : {}),
       };
       }
     case 'block_field_value':
+      {
+        const matchMode = normalizeFieldValueMatchMode(condition.match_mode);
+        const caseSensitive = normalizeFieldValueCaseSensitivity(
+          condition.case_sensitive,
+          condition.regex_flags,
+        );
+        const regexFlags = getCanonicalRegexFlags(condition.regex_flags);
       return {
         type,
         block_type: asStringOr(condition.block_type, ''),
         field_name: asStringOr(condition.field_name, ''),
         ...(condition.expected_value !== undefined ? { expected_value: condition.expected_value } : {}),
-        ...(condition.match_mode !== undefined ? { match_mode: asStringOr(condition.match_mode, '') } : {}),
-        ...(condition.regex_flags !== undefined ? { regex_flags: asStringOr(condition.regex_flags, '') } : {}),
+        ...(condition.match_mode !== undefined || matchMode !== 'exact' ? { match_mode: matchMode } : {}),
+        ...(!caseSensitive || condition.case_sensitive !== undefined || String(condition.regex_flags ?? '').includes('i')
+          ? { case_sensitive: caseSensitive }
+          : {}),
+        ...(condition.regex_flags !== undefined || regexFlags !== '' ? { regex_flags: regexFlags } : {}),
       };
+      }
     case BLOCK_PATTERN_TYPE: {
       const fieldConstraints = normalizePatternFieldConstraints(condition.field_constraints);
       return {
@@ -486,10 +513,12 @@ function normalizePatternFieldConstraints(value) {
               if (!isObjectLike(constraint)) return [];
               return [[fieldName, {
                 expected_value: constraint.expected_value ?? '',
-                match_mode: VALID_FIELD_VALUE_MATCH_MODES.includes(constraint.match_mode)
-                  ? constraint.match_mode
-                  : 'exact',
-                regex_flags: asStringOr(constraint.regex_flags, ''),
+                match_mode: normalizeFieldValueMatchMode(constraint.match_mode),
+                case_sensitive: normalizeFieldValueCaseSensitivity(
+                  constraint.case_sensitive,
+                  constraint.regex_flags,
+                ),
+                regex_flags: getCanonicalRegexFlags(constraint.regex_flags),
               }]];
             })
             .flat(),

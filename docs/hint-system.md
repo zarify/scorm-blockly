@@ -4,7 +4,7 @@ The hint system provides real-time, context-sensitive guidance to students as th
 
 ## How Hints Work
 
-1. The **hint engine** monitors the Blockly workspace for changes (debounced every 2 seconds)
+1. The **hint engine** monitors the Blockly workspace for changes (debounced — configurable, default 250ms)
 2. When an event occurs, each hint's **trigger conditions** are evaluated
 3. Hints that pass all checks either become **visible** or get **ticked off** if that individual hint is configured as a checklist item
 4. Students can **dismiss** hints; `show_once` hints won't return, while other hints stay hidden until the triggering situation changes or the event happens again
@@ -54,7 +54,14 @@ Checklist items work best when their condition represents a completed milestone,
 | `event` | string | ✅ | — | `"workspace_change"`, `"test_fail"`, `"manual"`, or `"timed"` |
 | `conditions` | condition | No | — | Workspace condition that must be true. This can be a simple predicate or a visual `block_pattern`. See [Condition Reference](condition-reference.md) |
 | `after_attempts` | integer | No | `0` | Only show after this many failed test runs |
+| `invalidate_on_condition_false` | boolean | No | `false` | If true, when the hint's condition becomes false the hint is treated as invalidated/dismissed and won't reappear. Useful for transient warnings that should not re-trigger once the situation resolves. |
 
+Additionally, per-hint UI controls:
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `style` | string | No | — | Optional style variant: `"success"`, `"warning"`, or `"error"`. Drives CSS classes (e.g. `hint-success`) for visual cues. |
+| `allow_manual_dismiss` | boolean | No | `true` | If false, the hint will not render a manual dismiss (✕) button and will instead obey configured dismissal/invalidations. Useful for triggered hints authors want to control via config. |
 ---
 
 ## Trigger Events
@@ -63,7 +70,9 @@ Checklist items work best when their condition represents a completed milestone,
 
 The most common trigger. Fires when the student adds, removes, moves, or modifies blocks.
 
-**Debouncing:** Evaluations are debounced by 2 seconds — the hint engine waits 2 seconds after the last workspace change before evaluating. This prevents constant flickering as students drag blocks.
+**Debouncing:** Evaluations are debounced to avoid flicker during rapid edits. The engine uses a short default debounce (250ms) so hints feel responsive; authors can override this with `ui_settings.hint_debounce_ms` in activity config.
+
+**Event coverage:** The hint engine now listens for any non-UI Blockly events (not just move/create/delete). This ensures field edits (text value updates), variable renames, and other non-drag edits trigger hint evaluations immediately.
 
 **Automatic delayed hints:** If a `workspace_change` hint has `delay_seconds`, the timer starts as soon as the condition becomes true and the hint now appears automatically once that delay elapses, even if the student pauses and makes no further edits.
 

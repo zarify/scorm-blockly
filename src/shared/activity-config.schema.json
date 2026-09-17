@@ -196,9 +196,10 @@
             "expected_value": {},
             "match_mode": {
               "type": "string",
-              "enum": ["exact", "regex"],
+              "enum": ["exact", "contains", "regex", "regex_full", "regex_search"],
               "default": "exact"
             },
+            "case_sensitive": { "type": "boolean", "default": true },
             "regex_flags": { "type": "string", "default": "" }
           },
           "required": ["type", "outer_type", "inner_type", "input_name"]
@@ -219,9 +220,10 @@
             "expected_value": {},
             "match_mode": {
               "type": "string",
-              "enum": ["exact", "regex"],
+              "enum": ["exact", "contains", "regex", "regex_full", "regex_search"],
               "default": "exact"
             },
+            "case_sensitive": { "type": "boolean", "default": true },
             "regex_flags": { "type": "string", "default": "" }
           },
           "required": ["type", "block_type", "field_name", "expected_value"]

@@ -9,6 +9,13 @@ import {
   isPatternWildcardType,
   registerBlockPatternBlocks,
 } from '../../shared/block-pattern.js';
+import {
+  FIELD_VALUE_MATCH_MODE_OPTIONS,
+  getCanonicalRegexFlags,
+  isRegexFieldValueMatchMode,
+  normalizeFieldValueCaseSensitivity,
+  normalizeFieldValueMatchMode,
+} from '../../shared/field-value-matching.js';
 
 registerBlockPatternBlocks(Blockly);
 
@@ -73,6 +80,7 @@ export function renderPatternBuilder(container, condition, onChange) {
 
   pruneFieldConstraints(condition, workspace);
   syncWorkspaceState();
+  bindInspectorEvents();
   renderInspector();
 
   workspace.addChangeListener((event) => {
@@ -155,45 +163,78 @@ export function renderPatternBuilder(container, condition, onChange) {
       </div>
     `;
 
-    bindInspectorEvents(selectedBlock, fields);
   }
 
-  function bindInspectorEvents(selectedBlock, fields) {
-    fields.forEach((field) => {
-      const checkbox = inspectorEl.querySelector(`[data-field-enable="${field.name}"]`);
-      checkbox?.addEventListener('change', (event) => {
-        const enabled = event.target.checked;
-        if (enabled) {
-          setFieldConstraint(condition, selectedBlock.id, field.name, {
-            expected_value: String(getComparableFieldValue(selectedBlock, field.name) ?? ''),
+  function bindInspectorEvents() {
+    inspectorEl.addEventListener('change', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement || target instanceof HTMLSelectElement)) return;
+
+      const selectedBlock = getInspectorBlock(workspace, activeBlockId);
+      if (!selectedBlock) return;
+
+      if (target.matches('[data-field-enable]')) {
+        const fieldName = target.getAttribute('data-field-enable');
+        if (!fieldName) return;
+
+        if (target.checked) {
+          setFieldConstraint(condition, selectedBlock.id, fieldName, {
+            expected_value: String(getComparableFieldValue(selectedBlock, fieldName) ?? ''),
             match_mode: 'exact',
+            case_sensitive: true,
             regex_flags: '',
           });
         } else {
-          clearFieldConstraint(condition, selectedBlock.id, field.name);
+          clearFieldConstraint(condition, selectedBlock.id, fieldName);
         }
+
         onChange(condition);
         renderInspector();
-      });
+        return;
+      }
 
-      const valueInput = inspectorEl.querySelector(`[data-field-value="${field.name}"]`);
-      valueInput?.addEventListener('input', (event) => {
-        setFieldConstraintValue(condition, selectedBlock.id, field.name, 'expected_value', event.target.value);
-        onChange(condition);
-      });
+      if (target.matches('[data-field-mode]')) {
+        const fieldName = target.getAttribute('data-field-mode');
+        if (!fieldName) return;
 
-      const modeSelect = inspectorEl.querySelector(`[data-field-mode="${field.name}"]`);
-      modeSelect?.addEventListener('change', (event) => {
-        setFieldConstraintValue(condition, selectedBlock.id, field.name, 'match_mode', event.target.value);
+        setFieldConstraintValue(condition, selectedBlock.id, fieldName, 'match_mode', target.value);
         onChange(condition);
         renderInspector();
-      });
+        return;
+      }
 
-      const flagsInput = inspectorEl.querySelector(`[data-field-flags="${field.name}"]`);
-      flagsInput?.addEventListener('input', (event) => {
-        setFieldConstraintValue(condition, selectedBlock.id, field.name, 'regex_flags', event.target.value);
+      if (target.matches('[data-field-case-sensitive]')) {
+        const fieldName = target.getAttribute('data-field-case-sensitive');
+        if (!fieldName || !(target instanceof HTMLInputElement)) return;
+
+        setFieldConstraintValue(condition, selectedBlock.id, fieldName, 'case_sensitive', target.checked);
         onChange(condition);
-      });
+      }
+    });
+
+    inspectorEl.addEventListener('input', (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement)) return;
+
+      const selectedBlock = getInspectorBlock(workspace, activeBlockId);
+      if (!selectedBlock) return;
+
+      if (target.matches('[data-field-value]')) {
+        const fieldName = target.getAttribute('data-field-value');
+        if (!fieldName) return;
+
+        setFieldConstraintValue(condition, selectedBlock.id, fieldName, 'expected_value', target.value);
+        onChange(condition);
+        return;
+      }
+
+      if (target.matches('[data-field-flags]')) {
+        const fieldName = target.getAttribute('data-field-flags');
+        if (!fieldName) return;
+
+        setFieldConstraintValue(condition, selectedBlock.id, fieldName, 'regex_flags', target.value);
+        onChange(condition);
+      }
     });
   }
 
@@ -257,6 +298,7 @@ function setFieldConstraintValue(condition, blockId, fieldName, key, value) {
   const current = getBlockConstraints(condition, blockId)[fieldName] || {
     expected_value: '',
     match_mode: 'exact',
+    case_sensitive: true,
     regex_flags: '',
   };
   setFieldConstraint(condition, blockId, fieldName, {
@@ -290,9 +332,13 @@ function pruneFieldConstraints(condition, workspace) {
 function renderFieldConstraintEditor(block, field, constraint) {
   const currentValue = String(getComparableFieldValue(block, field.name) ?? '');
   const enabled = Boolean(constraint);
-  const matchMode = constraint?.match_mode || 'exact';
+  const matchMode = normalizeFieldValueMatchMode(constraint?.match_mode);
+  const caseSensitive = normalizeFieldValueCaseSensitivity(
+    constraint?.case_sensitive,
+    constraint?.regex_flags,
+  );
   const expectedValue = String(constraint?.expected_value ?? currentValue);
-  const regexFlags = String(constraint?.regex_flags ?? '');
+  const regexFlags = getCanonicalRegexFlags(constraint?.regex_flags);
   const variableFieldNote = isVariableField(block, field.name)
     ? '<div class="pattern-field-current">This matches the variable name shown to students/authors, not Blockly’s internal variable id.</div>'
     : '';
@@ -307,25 +353,55 @@ function renderFieldConstraintEditor(block, field, constraint) {
       ${variableFieldNote}
       ${enabled ? `
         <div class="form-group">
-          <label>Expected value</label>
-          <input type="text" data-field-value="${escapeAttr(field.name)}" value="${escapeAttr(expectedValue)}" placeholder="Expected field value">
+          <label>${getFieldConstraintValueLabel(matchMode)}</label>
+          <input type="text" data-field-value="${escapeAttr(field.name)}" value="${escapeAttr(expectedValue)}" placeholder="${escapeAttr(getFieldConstraintValuePlaceholder(matchMode))}">
         </div>
         <div class="form-group">
-          <label>Match mode</label>
+          <label>Comparison</label>
           <select data-field-mode="${escapeAttr(field.name)}">
-            <option value="exact" ${matchMode === 'exact' ? 'selected' : ''}>Exact value</option>
-            <option value="regex" ${matchMode === 'regex' ? 'selected' : ''}>Regex (full match)</option>
+            ${FIELD_VALUE_MATCH_MODE_OPTIONS.map((option) => `
+              <option value="${option.value}" ${matchMode === option.value ? 'selected' : ''}>${option.label}</option>
+            `).join('')}
           </select>
         </div>
-        ${matchMode === 'regex' ? `
+        <label class="checkbox-label">
+          <input type="checkbox" data-field-case-sensitive="${escapeAttr(field.name)}" ${caseSensitive ? 'checked' : ''}>
+          Case sensitive
+        </label>
+        ${isRegexFieldValueMatchMode(matchMode) ? `
           <div class="form-group">
-            <label>Regex flags</label>
-            <input type="text" data-field-flags="${escapeAttr(field.name)}" value="${escapeAttr(regexFlags)}" placeholder="e.g. i">
+            <label>Extra regex flags</label>
+            <input type="text" data-field-flags="${escapeAttr(field.name)}" value="${escapeAttr(regexFlags)}" placeholder="e.g. m">
+            <small><code>i</code> is managed by the case-sensitive checkbox.</small>
           </div>
         ` : ''}
       ` : ''}
     </div>
   `;
+}
+
+function getFieldConstraintValueLabel(matchMode) {
+  switch (normalizeFieldValueMatchMode(matchMode)) {
+    case 'contains':
+      return 'Expected substring';
+    case 'regex_full':
+    case 'regex_search':
+      return 'Regex pattern';
+    default:
+      return 'Expected value';
+  }
+}
+
+function getFieldConstraintValuePlaceholder(matchMode) {
+  switch (normalizeFieldValueMatchMode(matchMode)) {
+    case 'contains':
+      return 'e.g. Hello';
+    case 'regex_full':
+    case 'regex_search':
+      return 'e.g. Who.*\\?';
+    default:
+      return 'Expected field value';
+  }
 }
 
 function escapeHtml(str) {
