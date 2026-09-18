@@ -52,10 +52,10 @@ function buildPreviewHtml(config) {
         <div id="instructions-panel" class="panel">
           <h2>Instructions</h2>
           <p>Loading...</p>
-        </div>
-        <div id="hint-panel" class="panel hint-panel">
-          <h3>💡 Hints</h3>
-          <p class="hint-empty">No hints available right now.</p>
+          <div id="hint-panel" class="hints-inline">
+            <h3>💡 Hints</h3>
+            <p class="hint-empty">No hints available right now.</p>
+          </div>
         </div>
       </aside>
 

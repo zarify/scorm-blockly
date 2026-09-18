@@ -51,7 +51,12 @@ body {
   display: flex;
   flex-direction: column;
   border-right: 1px solid #ddd;
+  min-height: 0;
   overflow-y: auto;
+}
+
+#left-panel .panel {
+  overflow: visible;
 }
 
 #instructions-panel {
@@ -78,6 +83,15 @@ body {
 
 .instruction-steps li {
   margin-bottom: 4px;
+}
+
+.formatted-text code {
+  background: #eef2f7;
+  border-radius: 4px;
+  padding: 1px 6px;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 0.95em;
+  word-break: break-word;
 }
 
 /* Hints inline within instructions */
@@ -132,22 +146,6 @@ body {
   background: #ffebee;
   border-color: #ffcdd2;
   color: #b71c1c;
-}
-
-.hint-dismiss {
-  position: absolute;
-  top: 6px;
-  right: 8px;
-  background: none;
-  border: none;
-  font-size: 14px;
-  cursor: pointer;
-  color: #999;
-  padding: 2px 4px;
-}
-
-.hint-dismiss:hover {
-  color: #333;
 }
 
 .hint-checklist {

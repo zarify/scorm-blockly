@@ -199,14 +199,7 @@ function renderHintEditor() {
         <label>Auto-invalidate</label>
         <label class="checkbox-label" style="display:block;margin-top:6px">
           <input type="checkbox" id="hint-invalidate-on-false" ${hint.trigger?.invalidate_on_condition_false ? 'checked' : ''}>
-          Invalidate when condition becomes false
-        </label>
-      </div>
-      <div class="form-group" style="flex:1">
-        <label>Manual dismiss</label>
-        <label class="checkbox-label" style="display:block;margin-top:6px">
-          <input type="checkbox" id="hint-allow-manual-dismiss" ${hint.allow_manual_dismiss === false ? '' : 'checked'}>
-          Allow manual dismiss (shows ✕)
+          Hide again when condition becomes false
         </label>
       </div>
     </div>
@@ -214,7 +207,7 @@ function renderHintEditor() {
       <input type="checkbox" id="hint-show-once" ${hint.show_once ? 'checked' : ''} ${getHintDisplayMode(hint) === 'checklist' ? 'disabled' : ''}>
       ${getHintDisplayMode(hint) === 'checklist'
         ? 'Show once does not apply to checklist items'
-        : "Show once (don't re-show after dismissal)"}
+        : "Show once (don't re-show after it has been used)"}
     </label>
   `;
 
@@ -247,7 +240,6 @@ function renderHintEditor() {
   bindField('hint-after-attempts', (v) => { hint.trigger.after_attempts = parseInt(v) || 0; });
   bindField('hint-style', (v) => { hint.style = v || undefined; });
   bindCheckboxField('hint-invalidate-on-false', (v) => { if (!hint.trigger) hint.trigger = {}; hint.trigger.invalidate_on_condition_false = v; });
-  bindCheckboxField('hint-allow-manual-dismiss', (v) => { hint.allow_manual_dismiss = !!v; });
   bindCheckboxField('hint-show-once', (v) => { hint.show_once = v; });
 }
 

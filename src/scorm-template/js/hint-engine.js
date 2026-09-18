@@ -2,16 +2,26 @@
  * Hint Engine — Real-time workspace monitoring and hint display.
  *
  * Listens for workspace changes, evaluates hint conditions via hint-evaluator,
- * manages hint state (shown/dismissed), and renders the hint panel UI.
+ * manages hint state, and renders the hint panel UI.
  */
 
-import { evaluateHints, createHintState } from '../../shared/hint-evaluator.js';
+import {
+  evaluateHints,
+  createHintState,
+  getManualHintRequestState,
+} from '../../shared/hint-evaluator.js';
+import { renderInlineMarkdown } from '../../shared/inline-markdown.js';
+import { evaluateCondition } from '../../shared/workspace-inspector.js';
 
 let hintState = null;
 let hintConfigs = [];
 let workspace = null;
 let hintPanel = null;
-let hintUiOptions = { enabled: true, legacyDisplayMode: 'triggered' };
+let hintUiOptions = {
+  enabled: true,
+  legacyDisplayMode: 'triggered',
+  onRequestAvailabilityChange: null,
+};
 let debounceTimer = null;
 let pendingEvaluationTimer = null;
 const DEFAULT_DEBOUNCE_MS = 250; // shorter default to reduce perceived lag
@@ -22,7 +32,7 @@ let debounceMs = DEFAULT_DEBOUNCE_MS;
  * @param {Array} hints - Hint configs from activity config
  * @param {object} blocklyWorkspace - Blockly workspace instance
  * @param {HTMLElement} panelElement - DOM element for the hint panel
- * @param {{ enabled?: boolean, legacyDisplayMode?: string }} options
+ * @param {{ enabled?: boolean, legacyDisplayMode?: string, onRequestAvailabilityChange?: Function }} options
  */
 export function initHintEngine(hints, blocklyWorkspace, panelElement, options = {}) {
   hintConfigs = hints || [];
@@ -31,6 +41,9 @@ export function initHintEngine(hints, blocklyWorkspace, panelElement, options = 
   hintUiOptions = {
     enabled: options.enabled !== false,
     legacyDisplayMode: options.legacyDisplayMode === 'checklist' ? 'checklist' : 'triggered',
+    onRequestAvailabilityChange: typeof options.onRequestAvailabilityChange === 'function'
+      ? options.onRequestAvailabilityChange
+      : null,
   };
   debounceMs = typeof options.debounceMs === 'number' ? options.debounceMs : DEFAULT_DEBOUNCE_MS;
   hintState = createHintState();
@@ -42,6 +55,7 @@ export function initHintEngine(hints, blocklyWorkspace, panelElement, options = 
       hintPanel.style.display = 'none';
       hintPanel.innerHTML = '';
     }
+    notifyHintRequestAvailability();
     return;
   }
 
@@ -56,25 +70,21 @@ export function initHintEngine(hints, blocklyWorkspace, panelElement, options = 
     debouncedEvaluate('workspace_change');
   });
 
-  evaluate('workspace_change', { resetTransientDismissals: true });
+  evaluate('workspace_change');
 }
 
 function debouncedEvaluate(event) {
   clearTimeout(debounceTimer);
   clearScheduledEvaluation();
-  debounceTimer = setTimeout(() => evaluate(event, { resetTransientDismissals: true }), debounceMs);
+  debounceTimer = setTimeout(() => evaluate(event), debounceMs);
 }
 
 /**
  * Evaluate hints and update the UI.
  * @param {string} event - Trigger event type
  */
-function evaluate(event, options = {}) {
+function evaluate(event) {
   if (!workspace || !hintState) return;
-
-  if (options.resetTransientDismissals) {
-    resetTransientDismissals(event);
-  }
 
   clearScheduledEvaluation();
   const { visibleHints, nextEvaluationDelayMs } = evaluateHints(
@@ -83,7 +93,9 @@ function evaluate(event, options = {}) {
     hintState,
     event,
   );
-  renderHints(visibleHints);
+  syncActiveHints(visibleHints, event);
+  renderHints();
+  notifyHintRequestAvailability();
 
   if (nextEvaluationDelayMs !== null) {
     pendingEvaluationTimer = setTimeout(() => evaluate(event), nextEvaluationDelayMs);
@@ -97,24 +109,14 @@ function evaluate(event, options = {}) {
 export function onTestFail(attemptNumber) {
   if (!hintState) return;
   hintState.attemptCount = attemptNumber;
-  evaluate('test_fail', { resetTransientDismissals: true });
+  evaluate('test_fail');
 }
 
 /**
  * Manually request hints (student clicks "Get Hint").
  */
 export function requestHint() {
-  evaluate('manual', { resetTransientDismissals: true });
-}
-
-/**
- * Dismiss a specific hint.
- * @param {string} hintId
- */
-export function dismissHint(hintId) {
-  if (!hintState) return;
-  hintState.dismissed.add(hintId);
-  evaluate('workspace_change');
+  evaluate('manual');
 }
 
 function clearScheduledEvaluation() {
@@ -124,102 +126,98 @@ function clearScheduledEvaluation() {
   }
 }
 
-function resetTransientDismissals(event) {
-  hintConfigs.forEach((hint) => {
-    if (!hint.show_once && hint.trigger?.event === event) {
-      hintState.dismissed.delete(hint.id);
-    }
-  });
-}
-
-/**
- * Render visible hints into the hint panel.
- */
-function renderHints(visibleHints) {
+function renderHints() {
   if (!hintPanel) return;
 
   const checklistHints = hintConfigs.filter((hint) => getHintDisplayMode(hint) === 'checklist');
-  const checklistHintIds = new Set(checklistHints.map((hint) => hint.id));
-
-  // Build a quick map of visible hints by id for fast lookup
-  const visibleMap = new Map(visibleHints.map((h) => [h.id, h]));
-
-  // Determine if there's anything to show
-  const nonChecklistDefined = hintConfigs.filter((hint) => !checklistHintIds.has(hint.id));
-  const anyNonChecklistVisible = nonChecklistDefined.some((h) => visibleMap.has(h.id));
-  if (checklistHints.length === 0 && !anyNonChecklistVisible) {
+  const activeHints = hintConfigs.filter(
+    (hint) => getHintDisplayMode(hint) !== 'checklist' && hintState?.active.has(hint.id),
+  );
+  if (checklistHints.length === 0 && activeHints.length === 0) {
     hintPanel.style.display = 'none';
     hintPanel.innerHTML = '';
     return;
   }
 
   hintPanel.style.display = '';
-  const sections = [];
-
-  // Render non-checklist hints inline in the order they appear in hintConfigs
-  if (nonChecklistDefined.length > 0) {
-    sections.push(`<section class="hint-section"><h3>💡 Hints</h3>`);
-
+  const sections = ['<section class="hint-section"><h3>💡 Hints</h3>'];
+  if (activeHints.length > 0) {
     sections.push(
-      nonChecklistDefined
-        .map((cfg) => {
-          const visible = visibleMap.get(cfg.id);
-          if (!visible) return null; // not currently visible, don't render a gap
-
-          const styleClass = cfg.style ? ` hint-${cfg.style}` : '';
-          const successClass = (cfg.display_mode === 'checklist' && hintState?.triggered.has(cfg.id)) ? ' is-success' : '';
-
-          // For triggered (hidden-until-fired) hints we do not render a manual dismiss button;
-          // they obey configured rules (show_once, invalidate_on_condition_false, etc.)
-          const allowManualDismiss = cfg.allow_manual_dismiss !== false && getHintDisplayMode(cfg) !== 'triggered';
-
+      activeHints
+        .map((hint) => {
+          const styleClass = hint.style ? ` hint-${hint.style}` : '';
           return `
-            <div class="hint-card${styleClass}${successClass}" data-hint-id="${cfg.id}">
-              <div class="hint-message">${escapeHtml(visible.message)}</div>
-              ${allowManualDismiss ? `<button class="hint-dismiss" data-hint-id="${escapeAttr(cfg.id)}" title="Dismiss hint">✕</button>` : ''}
+            <div class="hint-card${styleClass}" data-hint-id="${hint.id}">
+              <div class="hint-message formatted-text">${renderInlineMarkdown(hint.message)}</div>
             </div>
           `;
         })
-        .filter(Boolean)
         .join(''),
     );
-
-    sections.push(`</section>`);
   }
-
   if (checklistHints.length > 0) {
     sections.push(renderChecklistHints(checklistHints));
   }
-
+  sections.push('</section>');
   hintPanel.innerHTML = sections.join('');
-
-  // Wire up dismiss handlers only for buttons that exist (manual dismiss is optional)
-  hintPanel.querySelectorAll('.hint-dismiss').forEach((button) => {
-    button.addEventListener('click', () => {
-      dismissHint(button.dataset.hintId);
-    });
-  });
 }
 
 function renderChecklistHints(checklistHints) {
   return `
-    <section class="hint-section">
-      <h3>✅ Hint checklist</h3>
-      <ul class="hint-checklist">
-        ${checklistHints
-        .map((hint) => {
-          const completed = hintState?.triggered.has(hint.id);
-          return `
-            <li class="hint-checklist-item ${completed ? 'is-complete' : ''}">
-              <span class="hint-checklist-icon" aria-hidden="true">${completed ? '☑' : '☐'}</span>
-              <span class="hint-checklist-message">${escapeHtml(hint.message)}</span>
-            </li>
-          `;
-        })
-        .join('')}
-      </ul>
-    </section>
+    <ul class="hint-checklist">
+      ${checklistHints
+      .map((hint) => {
+        const completed = hintState?.triggered.has(hint.id);
+        return `
+          <li class="hint-checklist-item ${completed ? 'is-complete' : ''}">
+            <span class="hint-checklist-icon" aria-hidden="true">${completed ? '☑' : '☐'}</span>
+            <span class="hint-checklist-message formatted-text">${renderInlineMarkdown(hint.message)}</span>
+          </li>
+        `;
+      })
+      .join('')}
+    </ul>
   `;
+}
+
+function syncActiveHints(visibleHints, event) {
+  const firedHintIds = new Set(visibleHints.map((hint) => hint.id));
+
+  hintConfigs.forEach((hint) => {
+    if (getHintDisplayMode(hint) === 'checklist') {
+      return;
+    }
+
+    if (firedHintIds.has(hint.id)) {
+      hintState.active.add(hint.id);
+      if (hint.show_once && event === 'manual' && hint.trigger?.event === 'manual') {
+        hintState.consumed.add(hint.id);
+      }
+      return;
+    }
+
+    if (!shouldAutoInvalidateHint(hint)) {
+      return;
+    }
+
+    hintState.active.delete(hint.id);
+    hintState.firstTriggered.delete(hint.id);
+    if (hint.show_once) {
+      hintState.consumed.add(hint.id);
+    }
+  });
+}
+
+function shouldAutoInvalidateHint(hint) {
+  if (!hintState?.active.has(hint.id)) {
+    return false;
+  }
+
+  if (!hint.trigger?.invalidate_on_condition_false || !hint.trigger.conditions) {
+    return false;
+  }
+
+  return !evaluateCondition(workspace, hint.trigger.conditions).passed;
 }
 
 function getHintDisplayMode(hint) {
@@ -232,14 +230,14 @@ function getHintDisplayMode(hint) {
   return hintUiOptions.legacyDisplayMode === 'checklist' ? 'checklist' : 'triggered';
 }
 
-function escapeHtml(str) {
-  const div = document.createElement('div');
-  div.textContent = str == null ? '' : String(str);
-  return div.innerHTML;
-}
+function notifyHintRequestAvailability() {
+  if (typeof hintUiOptions.onRequestAvailabilityChange !== 'function') {
+    return;
+  }
 
-function escapeAttr(str) {
-  return String(str).replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  hintUiOptions.onRequestAvailabilityChange(
+    getManualHintRequestState(hintConfigs, workspace, hintState),
+  );
 }
 
 // Import Blockly events reference

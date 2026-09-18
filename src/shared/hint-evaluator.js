@@ -9,7 +9,8 @@ import { evaluateCondition } from './workspace-inspector.js';
 
 /**
  * @typedef {Object} HintState
- * @property {Set<string>} dismissed - Hint IDs the student has dismissed
+ * @property {Set<string>} active - Non-checklist hints currently visible
+ * @property {Set<string>} consumed - show_once hints already used up
  * @property {Map<string, number>} firstTriggered - Hint ID → timestamp when condition first became true
  * @property {Set<string>} triggered - Hint IDs that have been triggered at least once
  * @property {number} attemptCount - Number of test runs (failed) so far
@@ -60,9 +61,13 @@ function evaluateHint(hint, workspace, state, event) {
   const delay = hint.delay_seconds || 0;
   const delayAlreadyStarted = state.firstTriggered.has(hint.id);
 
+  if (state.consumed.has(hint.id)) {
+    return { visible: false, pendingDelayMs: null };
+  }
+
   // Event must match unless the hint is already waiting for its delay timer
-  // to finish from a prior matching event, or we're evaluating all on manual.
-  if (event !== 'manual' && trigger.event !== event && !(delay > 0 && delayAlreadyStarted)) {
+  // to finish from a prior matching event.
+  if (trigger.event !== event && !(delay > 0 && delayAlreadyStarted)) {
     return { visible: false, pendingDelayMs: null };
   }
 
@@ -78,23 +83,13 @@ function evaluateHint(hint, workspace, state, event) {
       // Condition not met — clear the firstTriggered timestamp
       state.firstTriggered.delete(hint.id);
 
-      // If configured, mark this hint dismissed/invalidated when its condition becomes false
       if (trigger.invalidate_on_condition_false) {
-        state.dismissed.add(hint.id);
         // Also clear any triggered/completed mark so checklist items un-check
         state.triggered.delete(hint.id);
-      } else {
-        if (!hint.show_once) {
-          state.dismissed.delete(hint.id);
-        }
       }
 
       return { visible: false, pendingDelayMs: null };
     }
-  }
-
-  if (state.dismissed.has(hint.id)) {
-    return { visible: false, pendingDelayMs: null };
   }
 
   // Check delay — condition must have been true for delay_seconds
@@ -121,10 +116,46 @@ function evaluateHint(hint, workspace, state, event) {
  */
 export function createHintState() {
   return {
-    dismissed: new Set(),
+    active: new Set(),
+    consumed: new Set(),
     firstTriggered: new Map(),
     triggered: new Set(),
     attemptCount: 0,
     elapsedSeconds: 0,
   };
+}
+
+export function getManualHintRequestState(hints, workspace, state) {
+  const manualHints = Array.isArray(hints)
+    ? hints.filter((hint) => hint?.trigger?.event === 'manual')
+    : [];
+
+  if (manualHints.length === 0) {
+    return { hasManualHints: false, canRequest: false };
+  }
+
+  return {
+    hasManualHints: true,
+    canRequest: manualHints.some((hint) => isManualHintEligible(hint, workspace, state)),
+  };
+}
+
+function isManualHintEligible(hint, workspace, state) {
+  if (!hint?.trigger || !workspace || !state) {
+    return false;
+  }
+
+  if (state.consumed.has(hint.id)) {
+    return false;
+  }
+
+  if (hint.trigger.after_attempts && state.attemptCount < hint.trigger.after_attempts) {
+    return false;
+  }
+
+  if (!hint.trigger.conditions) {
+    return true;
+  }
+
+  return evaluateCondition(workspace, hint.trigger.conditions).passed;
 }
