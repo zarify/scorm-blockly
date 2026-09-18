@@ -7,7 +7,8 @@
 import * as scorm from './scorm-wrapper.js';
 import { initWorkspace, generateCode, getWorkspace, Blockly } from './blockly-engine.js';
 import { executeInteractiveRun, runTests } from './test-runner.js';
-import { initHintEngine, onTestFail, requestHint, dismissHint, setBlocklyRef } from './hint-engine.js';
+import { initHintEngine, onTestFail, requestHint, setBlocklyRef } from './hint-engine.js';
+import { renderInlineMarkdown } from '../../shared/inline-markdown.js';
 
 let config = null;
 let attemptCount = 0;
@@ -52,6 +53,7 @@ async function init() {
     enabled: areHintsEnabled(config),
     legacyDisplayMode: getLegacyHintDisplayMode(config),
     debounceMs: config.ui_settings?.hint_debounce_ms ?? 250,
+    onRequestAvailabilityChange: updateHintRequestButtonState,
   });
 
   // 6. Attach event handlers
@@ -93,22 +95,27 @@ async function loadConfig() {
 function renderInstructions(cfg) {
   const panel = document.getElementById('instructions-panel');
   if (!panel) return;
+  const hintPanel = panel.querySelector('#hint-panel');
+  hintPanel?.remove();
 
   let html = '';
   if (cfg.metadata?.title) {
-    html += `<h2>${escapeHtml(cfg.metadata.title)}</h2>`;
+    html += `<h2 class="formatted-text">${renderInlineMarkdown(cfg.metadata.title)}</h2>`;
   }
   if (cfg.instructions?.main) {
-    html += `<p class="instruction-main">${escapeHtml(cfg.instructions.main)}</p>`;
+    html += `<p class="instruction-main formatted-text">${renderInlineMarkdown(cfg.instructions.main)}</p>`;
   }
   if (cfg.instructions?.steps?.length > 0) {
     html += '<ol class="instruction-steps">';
     for (const step of cfg.instructions.steps) {
-      html += `<li>${escapeHtml(step)}</li>`;
+      html += `<li class="formatted-text">${renderInlineMarkdown(step)}</li>`;
     }
     html += '</ol>';
   }
   panel.innerHTML = html;
+  if (hintPanel) {
+    panel.appendChild(hintPanel);
+  }
 }
 
 function renderUISettings(cfg) {
@@ -122,10 +129,13 @@ function configureHintRequestButton(cfg) {
   const hintButton = document.getElementById('btn-request-hint');
   if (!hintButton) return;
 
-  const hintPanelEnabled = areHintsEnabled(cfg);
-  const hasHints = Array.isArray(cfg.hints) && cfg.hints.length > 0;
-  hintButton.style.display = hintPanelEnabled && hasHints ? 'inline-flex' : 'none';
-  hintButton.onclick = hintPanelEnabled && hasHints ? handleHintRequest : null;
+  if (!areHintsEnabled(cfg)) {
+    hintButton.onclick = null;
+    updateHintRequestButtonState();
+    return;
+  }
+
+  hintButton.onclick = handleHintRequest;
 }
 
 function configureCodeToggleButton(cfg) {
@@ -378,9 +388,9 @@ function buildCheckResultsHtml(results, totalScore, maxScore) {
   html += '</div>';
   html += '<ul class="results-list">';
   for (const result of results) {
-    html += `<li class="${result.passed ? 'result-pass' : 'result-fail'}">`;
+    html += `<li class="${result.passed ? 'result-pass' : 'result-fail'} formatted-text">`;
     html += `<span class="result-icon">${result.passed ? '✓' : '✗'}</span> `;
-    html += escapeHtml(result.feedback);
+    html += renderInlineMarkdown(result.feedback);
     html += '</li>';
   }
   html += '</ul></div>';
@@ -393,6 +403,24 @@ function areHintsEnabled(cfg) {
 
 function getLegacyHintDisplayMode(cfg) {
   return cfg.ui_settings?.hint_display_mode === 'checklist' ? 'checklist' : 'triggered';
+}
+
+function updateHintRequestButtonState({ hasManualHints = false, canRequest = false } = {}) {
+  const hintButton = document.getElementById('btn-request-hint');
+  if (!hintButton) return;
+
+  if (!areHintsEnabled(config) || !hasManualHints) {
+    hintButton.style.display = 'none';
+    hintButton.disabled = true;
+    hintButton.removeAttribute('title');
+    return;
+  }
+
+  hintButton.style.display = 'inline-flex';
+  hintButton.disabled = !canRequest;
+  hintButton.title = canRequest
+    ? 'Request a hint.'
+    : 'Hints are configured, but their conditions are not met yet.';
 }
 
 function escapeHtml(str) {
@@ -413,7 +441,7 @@ function isEmbeddedPreview() {
 }
 
 // Expose functions for inline event handlers
-window.BlocklyScorm = { dismissHint, requestHint };
+window.BlocklyScorm = { requestHint };
 
 // Start when DOM is ready
 if (document.readyState === 'loading') {

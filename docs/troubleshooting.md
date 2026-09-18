@@ -138,7 +138,7 @@ Common differences between local preview and Moodle:
    - `test_fail` only fires after clicking "Check" and failing
 3. **Check delay** — If `delay_seconds` is set, wait that long after the condition becomes true; the hint should now appear automatically once the delay elapses
 4. **Check condition** — The condition must evaluate to true. Test with simple conditions first (e.g., `workspace_empty`)
-5. **Check `show_once`** — If true and already dismissed, the hint won't reappear
+5. **Check `show_once`** — If true and already consumed, the hint won't reappear
 
 ---
 

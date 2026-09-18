@@ -7,8 +7,9 @@ The hint system provides real-time, context-sensitive guidance to students as th
 1. The **hint engine** monitors the Blockly workspace for changes (debounced — configurable, default 250ms)
 2. When an event occurs, each hint's **trigger conditions** are evaluated
 3. Hints that pass all checks either become **visible** or get **ticked off** if that individual hint is configured as a checklist item
-4. Students can **dismiss** hints; `show_once` hints won't return, while other hints stay hidden until the triggering situation changes or the event happens again
-5. Hints are sorted by **priority** — higher priority hints appear first
+4. Triggered hints stay visible after they appear unless they are configured to auto-invalidate
+5. `show_once` hints are consumed after one use and won't return
+6. Hints are sorted by **priority** — higher priority hints appear first
 
 ## Hint Configuration
 
@@ -43,7 +44,7 @@ Each hint is an object in the `hints` array:
 | `display_mode` | string | No | `triggered` | `triggered`: hide until this hint fires. `checklist`: always show in the sidebar and tick off once triggered. |
 | `priority` | integer | No | `1` | Higher priority hints appear first |
 | `delay_seconds` | integer | No | `0` | Wait this long after condition is met before showing |
-| `show_once` | boolean | No | `false` | If true, don't re-show after student dismisses |
+| `show_once` | boolean | No | `false` | If true, the hint is consumed after one use and won't reappear |
 
 Checklist items work best when their condition represents a completed milestone, such as adding the required block or matching a finished pattern.
 
@@ -54,14 +55,13 @@ Checklist items work best when their condition represents a completed milestone,
 | `event` | string | ✅ | — | `"workspace_change"`, `"test_fail"`, `"manual"`, or `"timed"` |
 | `conditions` | condition | No | — | Workspace condition that must be true. This can be a simple predicate or a visual `block_pattern`. See [Condition Reference](condition-reference.md) |
 | `after_attempts` | integer | No | `0` | Only show after this many failed test runs |
-| `invalidate_on_condition_false` | boolean | No | `false` | If true, when the hint's condition becomes false the hint is treated as invalidated/dismissed and won't reappear. Useful for transient warnings that should not re-trigger once the situation resolves. |
+| `invalidate_on_condition_false` | boolean | No | `false` | If true, a triggered hint hides again when its condition becomes false. Combine with `show_once` to make that hide permanent. |
 
 Additionally, per-hint UI controls:
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `style` | string | No | — | Optional style variant: `"success"`, `"warning"`, or `"error"`. Drives CSS classes (e.g. `hint-success`) for visual cues. |
-| `allow_manual_dismiss` | boolean | No | `true` | If false, the hint will not render a manual dismiss (✕) button and will instead obey configured dismissal/invalidations. Useful for triggered hints authors want to control via config. |
 ---
 
 ## Trigger Events
@@ -119,7 +119,7 @@ Fires when the student clicks **💡 Get Hint** (or requests a hint programmatic
 }
 ```
 
-**Special behaviour:** When the event is `manual`, the hint engine evaluates **all eligible hints** regardless of their configured trigger event. This means a `workspace_change` hint with a satisfied condition will also appear on manual request.
+Only hints whose `trigger.event` is `manual` are considered requestable by the button. A `manual` hint with `show_once: true` is treated as consumed once the student requests it, so it will not activate the button again.
 
 ### `timed`
 
@@ -144,12 +144,11 @@ Intended for time-based hints that appear after a period of inactivity.
 When an event occurs, each hint goes through this evaluation pipeline:
 
 ```
-1. show_once check
-   → If hint.show_once AND student already dismissed it → HIDE
+1. Consumption check
+   → If a `show_once` hint has already been consumed → HIDE
 
 2. Event match
-   → If event ≠ 'manual' AND hint.trigger.event ≠ event → HIDE
-   → (manual event bypasses this check — evaluates all eligible hints)
+   → If hint.trigger.event ≠ event → HIDE
 
 3. Attempt threshold
    → If hint.trigger.after_attempts > 0
@@ -165,6 +164,7 @@ When an event occurs, each hint goes through this evaluation pipeline:
    → If condition was false and becomes true again → timer resets
 
 6. All checks passed → SHOW
+   → Triggered hints stay visible unless auto-invalidated
 ```
 
 ### Delay Timer Behaviour
@@ -253,7 +253,7 @@ Build hints that escalate from vague to specific:
 - ✅ **Start vague, get specific** — Let students think before giving answers
 - ✅ **Use delay_seconds** on early hints — Give students time to try first
 - ✅ **Use after_attempts** for test-fail hints — Don't overwhelm on first failure
-- ✅ **Use show_once** for one-time nudges — Don't nag about things they've already seen
+- ✅ **Use show_once** for one-time nudges — Once consumed, they stay gone
 - ✅ **Use conditions** to make hints context-sensitive — Show the right hint at the right time
 
 ### Don't
@@ -271,8 +271,10 @@ The hint engine tracks state internally:
 
 | State | Type | Description |
 |-------|------|-------------|
-| `dismissed` | `Set<string>` | IDs of hints the student has dismissed |
+| `active` | `Set<string>` | Non-checklist hints currently being shown |
+| `consumed` | `Set<string>` | `show_once` hints that have already been used up |
 | `firstTriggered` | `Map<string, number>` | Hint ID → timestamp when condition first became true |
+| `triggered` | `Set<string>` | Hints that have triggered at least once (used for checklist completion) |
 | `attemptCount` | `number` | Number of failed test runs |
 | `elapsedSeconds` | `number` | Seconds since activity opened |
 
@@ -284,8 +286,9 @@ This state is **not persisted** across page reloads. If the student refreshes th
 
 When `ui_settings.show_hint_panel` is enabled, hints can be mixed:
 
-- Hints with `display_mode: "triggered"` show as hint cards only after their trigger conditions fire. Each card includes the hint message and a **dismiss button** (✕).
+- Hints with `display_mode: "triggered"` show as hint cards only after their trigger conditions fire, and stay visible unless auto-invalidated.
 - Hints with `display_mode: "checklist"` stay visible in the sidebar from the start and tick off once they have triggered.
+- The **💡 Get Hint** button is only shown when at least one `manual` hint is configured. It stays disabled until a non-consumed manual hint becomes eligible, then becomes active.
 
 Set `ui_settings.show_hint_panel: false` to disable the student-facing hint UI entirely.
 

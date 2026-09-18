@@ -24,6 +24,8 @@ Every Blockly activity is defined by a single JSON file: `activity_config.json`.
 | `hints` | No | Contextual hints |
 | `evaluation` | ✅ | Test cases and grading |
 
+Student-facing text fields support a safe inline Markdown subset: `**bold**`, `*italic*`, and `` `code` ``. Line breaks in multi-line fields are preserved.
+
 ---
 
 ## `metadata` (required)
@@ -178,7 +180,9 @@ Each hint object:
 | `display_mode` | string | No | `"triggered"` | `triggered`: hide until fired. `checklist`: always show in the sidebar and tick off once triggered. |
 | `priority` | integer | No | `1` | Higher priority hints appear first (sorted descending) |
 | `delay_seconds` | integer | No | `0` | Seconds after condition becomes true before hint appears |
-| `show_once` | boolean | No | `false` | If `true`, hint never reappears after student dismisses it |
+| `show_once` | boolean | No | `false` | If `true`, the hint can only be used once. After it is consumed, it will not reappear |
+| `style` | string | No | — | Optional visual style: `"success"`, `"warning"`, or `"error"` |
+| `trigger.invalidate_on_condition_false` | boolean | No | `false` | For triggered hints, hide the hint again when its condition becomes false |
 
 **Example:**
 ```json

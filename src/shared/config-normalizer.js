@@ -163,12 +163,14 @@ function normalizeDraftHint(hint, index, legacyDisplayMode = 'triggered') {
       event: VALID_HINT_EVENTS.includes(trigger.event) ? trigger.event : 'workspace_change',
       conditions: normalizeDraftCondition(trigger.conditions),
       after_attempts: asNonNegativeInteger(trigger.after_attempts, 0),
+      invalidate_on_condition_false: Boolean(trigger.invalidate_on_condition_false),
     },
     display_mode: normalizePerHintDisplayMode(hint.display_mode, legacyDisplayMode),
     message: asStringOr(hint.message, ''),
     priority: asPositiveInteger(hint.priority, index + 1),
     delay_seconds: asNonNegativeInteger(hint.delay_seconds, 0),
     show_once: Boolean(hint.show_once),
+    style: asStringOr(hint.style, '') || undefined,
   };
 }
 
@@ -184,6 +186,9 @@ function normalizePublishHint(hint, legacyDisplayMode = 'triggered') {
           ...(trigger.after_attempts !== undefined
             ? { after_attempts: asNonNegativeInteger(trigger.after_attempts, 0) }
             : {}),
+          ...(trigger.invalidate_on_condition_false !== undefined
+            ? { invalidate_on_condition_false: Boolean(trigger.invalidate_on_condition_false) }
+            : {}),
         }
       : null,
     message: asStringOr(hint.message, ''),
@@ -193,6 +198,7 @@ function normalizePublishHint(hint, legacyDisplayMode = 'triggered') {
     ...(hint.priority !== undefined ? { priority: asPositiveInteger(hint.priority, 1) } : {}),
     ...(hint.delay_seconds !== undefined ? { delay_seconds: asNonNegativeInteger(hint.delay_seconds, 0) } : {}),
     ...(hint.show_once !== undefined ? { show_once: Boolean(hint.show_once) } : {}),
+    ...(hint.style !== undefined && asStringOr(hint.style, '') ? { style: asStringOr(hint.style, '') } : {}),
   };
 }
 

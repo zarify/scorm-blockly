@@ -85,7 +85,7 @@ Handles 10 condition types (7 atomic, 3 composite). Used by both the hint system
 
 **Key function:** `evaluateHints(hints, workspace, state, event) → Array<{ id, message, priority }>`
 
-Imports `evaluateCondition` from workspace-inspector. Manages hint state (dismissed set, delay timers, attempt counts).
+Imports `evaluateCondition` from workspace-inspector. Manages hint state (active/consumed sets, delay timers, attempt counts).
 
 ### `config-validator.js`
 

@@ -160,7 +160,7 @@ Create contextual hints that appear as students work. See [Hint System](hint-sys
    - **Priority** — Higher priority hints suppress lower ones
    - **Delay** — Seconds before the hint appears after condition is met
    - **After N fails** — Only show after this many failed test runs
-   - **Show once** — Don't re-show after student dismisses it
+   - **Show once** — Let the hint be used only once
 
 ### Progressive Hint Strategy
 
@@ -174,6 +174,7 @@ A good hint sequence escalates from vague to specific:
 
 Use `delay_seconds` on early hints to avoid showing them before the student has had a chance to try.
 Workspace-change hints are evaluated automatically after Blockly edits, and delayed hints now appear once the delay elapses even if the student stops dragging blocks.
+Only `manual` hints control the **💡 Get Hint** button. If no manual hints exist it stays hidden; if manual hints exist but are not yet eligible it stays disabled. A `show_once` manual hint stops counting toward that button after it has been used.
 
 ### Visual Block Patterns
 
