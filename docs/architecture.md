@@ -147,20 +147,21 @@ Student clicks "Check"
   ├── test-runner.runTests(testCases, code, workspace)
   │   │
   │   ├── Check which tests need execution
-  │   │   └── stdout_match or variable_state → need execution
+  │   │   └── stdout_match, variable_state, or function_state → need execution
   │   │
   │   ├── executeCode(code) [if needed]
   │   │   ├── Create Web Worker from Blob
   │   │   ├── Worker patches console.log
   │   │   ├── Worker executes via new Function(code)()
-  │   │   ├── Worker captures stdout + variables
+  │   │   ├── Worker captures stdout + variables + functions/call results
   │   │   ├── Worker posts result back
   │   │   └── 5s timeout → terminate worker
   │   │
   │   ├── For each test case:
   │   │   ├── stdout_match → compare output string
   │   │   ├── block_structure → evaluateCondition(workspace, conditions)
-  │   │   └── variable_state → check variable from execution result
+  │   │   ├── variable_state → check variable from execution result
+  │   │   └── function_state → check function existence / parameters / return value
   │   │
   │   └── Calculate totalScore / maxScore
   │

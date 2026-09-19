@@ -39,4 +39,74 @@ export function configureJavascriptGenerator(javascriptGenerator) {
     const variableName = generator.getVariableName(block.getFieldValue('VAR'));
     return `${variableName} = __runtime.readVar(${JSON.stringify(variableName)}, ${variableName}) + ${delta};\n`;
   };
+
+  javascriptGenerator.forBlock.procedures_defnoreturn = function proceduresDefNoReturn(block, generator) {
+    return buildAsyncProcedureDefinition(block, generator);
+  };
+
+  javascriptGenerator.forBlock.procedures_defreturn = function proceduresDefReturn(block, generator) {
+    return buildAsyncProcedureDefinition(block, generator);
+  };
+
+  javascriptGenerator.forBlock.procedures_callreturn = function proceduresCallReturn(block, generator) {
+    const functionName = generator.getProcedureName(block.getFieldValue('NAME'));
+    const argumentCodes = [];
+    const argumentVariables = block.getVars();
+    for (let index = 0; index < argumentVariables.length; index += 1) {
+      argumentCodes[index] = generator.valueToCode(block, `ARG${index}`, Order.NONE) || 'null';
+    }
+    return [`await ${functionName}(${argumentCodes.join(', ')})`, Order.AWAIT];
+  };
+
+  javascriptGenerator.forBlock.procedures_callnoreturn = function proceduresCallNoReturn(block, generator) {
+    return `${generator.forBlock.procedures_callreturn(block, generator)[0]};\n`;
+  };
+}
+
+function buildAsyncProcedureDefinition(block, generator) {
+  const functionName = generator.getProcedureName(block.getFieldValue('NAME'));
+  let prefix = '';
+  if (generator.STATEMENT_PREFIX) {
+    prefix += generator.injectId(generator.STATEMENT_PREFIX, block);
+  }
+  if (generator.STATEMENT_SUFFIX) {
+    prefix += generator.injectId(generator.STATEMENT_SUFFIX, block);
+  }
+  if (prefix) {
+    prefix = generator.prefixLines(prefix, generator.INDENT);
+  }
+
+  let loopTrap = '';
+  if (generator.INFINITE_LOOP_TRAP) {
+    loopTrap = generator.prefixLines(generator.injectId(generator.INFINITE_LOOP_TRAP, block), generator.INDENT);
+  }
+
+  let branch = '';
+  if (block.getInput('STACK')) {
+    branch = generator.statementToCode(block, 'STACK');
+  }
+
+  let returnValue = '';
+  if (block.getInput('RETURN')) {
+    returnValue = generator.valueToCode(block, 'RETURN', Order.NONE) || '';
+  }
+
+  let returnPrefix = '';
+  if (branch && returnValue) {
+    returnPrefix = prefix;
+  }
+  if (returnValue) {
+    returnValue = `${generator.INDENT}return ${returnValue};\n`;
+  }
+
+  const args = [];
+  const variables = block.getVars();
+  for (let index = 0; index < variables.length; index += 1) {
+    args[index] = generator.getVariableName(variables[index]);
+  }
+
+  let code = `async function ${functionName}(${args.join(', ')}) {\n${prefix}${loopTrap}${branch}${returnPrefix}${returnValue}}`;
+  code = generator.scrub_(block, code);
+  generator.definitions_[`%${functionName}`] = code;
+  return null;
 }

@@ -683,13 +683,20 @@ function renderStudentDetailHtml(studentDetail) {
     return `<div class="result-detail-note formatted-text">${renderInlineMarkdown(studentDetail)}</div>`;
   }
 
-  if (studentDetail && Array.isArray(studentDetail.sections)) {
-    return studentDetail.sections.map((section) => `
+  if (studentDetail && typeof studentDetail === 'object') {
+    let html = '';
+    if (typeof studentDetail.note === 'string' && studentDetail.note.trim()) {
+      html += `<div class="result-detail-note formatted-text">${renderInlineMarkdown(studentDetail.note)}</div>`;
+    }
+    if (Array.isArray(studentDetail.sections)) {
+      html += studentDetail.sections.map((section) => `
       <div class="result-detail-section">
         <div class="result-detail-title">${escapeHtml(section.title || '')}</div>
         <pre class="result-detail-value">${escapeHtml(section.value || '')}</pre>
       </div>
-    `).join('');
+      `).join('');
+    }
+    return html;
   }
 
   return '';

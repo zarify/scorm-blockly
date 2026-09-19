@@ -11,13 +11,14 @@ If `evaluation.require_previous_test_pass` is enabled (the default), test order 
 | `stdout_match` | Console output matches expected string | ✅ Yes | Checking program output |
 | `block_structure` | Workspace has required block patterns | ❌ No | Enforcing specific approaches |
 | `variable_state` | Variable has correct value after execution | ✅ Yes | Checking internal state |
+| `function_state` | Function exists, has the expected parameter count, and/or returns the expected value | ✅ Yes | Checking procedure definitions and behaviour |
 
 ## Common Fields (All Types)
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `id` | string | ✅ | Unique test identifier |
-| `type` | string | ✅ | `"stdout_match"`, `"block_structure"`, or `"variable_state"` |
+| `type` | string | ✅ | `"stdout_match"`, `"block_structure"`, `"variable_state"`, or `"function_state"` |
 | `points` | integer | ✅ | Integer points awarded when the test passes |
 | `feedback_on_pass` | string | No | Custom message shown to students when this test passes |
 | `feedback_on_fail` | string | No | Custom message shown to students when this test fails |
@@ -37,12 +38,25 @@ Runs the student's code and compares one or both captured runtime text streams:
 |-------|------|----------|---------|-------------|
 | `prompt_inputs` | array of strings | No | `[]` | Values returned to successive learner input requests |
 | `strict_prompt_inputs` | boolean | No | `true` | If true, extra or missing `prompt()` calls fail the test |
+| `execution_context` | object | No | `{ "scope": "main" }` | Whether to capture the whole top-level run or only one function call |
 | `output_assertion` | object | No | disabled unless legacy fields are present | Configures how captured stdout is checked |
 | `prompt_assertion` | object | No | disabled | Configures how captured prompt text is checked |
 | `expected_output` | string | Legacy | — | Legacy alias for `output_assertion.expected` |
 | `match_mode` | string | Legacy | `"exact"` | Legacy alias for `output_assertion.match_mode` |
 
 At least one of `output_assertion` or `prompt_assertion` must be enabled.
+
+### Execution Context
+
+Use `execution_context` to decide what part of the program produces the prompt/output text being checked:
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `scope` | string | No | `"main"` | `"main"` captures the whole top-level run; `"function"` captures only one function call after setup finishes |
+| `function_name` | string | When `scope` is `"function"` | — | Function name to call |
+| `arguments` | array | When `scope` is `"function"` | `[]` | Arguments passed to that function call |
+
+When `scope` is `"function"`, the student's top-level code still runs first so setup can happen, but the text assertions see **only** the stdout/prompt text produced during the configured function call.
 
 ### Assertion Fields
 
@@ -143,6 +157,26 @@ If `strict_prompt_inputs` is `false`, the test will still run even when the prog
   "feedback_on_pass": "Both your prompt and output are correct.",
   "feedback_on_fail": "Make sure both the prompt text and printed greeting are correct."
 }
+
+// Check only the output produced by a specific function call
+{
+  "id": "test_greet_output",
+  "type": "stdout_match",
+  "execution_context": {
+    "scope": "function",
+    "function_name": "greet",
+    "arguments": ["Ada"]
+  },
+  "output_assertion": {
+    "enabled": true,
+    "expected": "Hello, Ada!\n",
+    "match_mode": "exact",
+    "show_expected": true,
+    "show_actual": true
+  },
+  "points": 4,
+  "feedback_on_fail": "Calling greet(\"Ada\") should print Hello, Ada!"
+}
 ```
 
 ### Tips
@@ -151,6 +185,7 @@ If `strict_prompt_inputs` is `false`, the test will still run even when the prog
 - Use `prompt_inputs` when the Blockly program asks the learner for input via the text prompt block
 - `prompt_inputs` are used by automated checks; the normal **▶ Run Code** action now uses the in-app interactive console for the live program run, while **✓ Check** uses each test's configured inputs
 - Prompt input matching is strict: if the program asks for more inputs than configured, or leaves configured inputs unused, the test fails explicitly
+- Function-scope checks still use the configured `prompt_inputs` for the full run, including any top-level setup that happens before the scoped function call
 - Prompt-only checks still need `prompt_inputs` if the code calls `prompt(...)`
 - Use `prompt_assertion.match_any_item: true` when you want exact/contains/regex matching against any one prompt message rather than against the whole combined prompt transcript
 - `feedback_on_pass` sets the overall success message for the test. For `stdout_match`, it overrides any assertion-specific success messages
@@ -441,9 +476,111 @@ For most new authoring, prefer `expected_type` over the legacy `type` comparison
 
 ---
 
+## `function_state`
+
+Runs the student's code, checks that a named function exists, optionally checks its parameter count, and can call it with configured arguments to assert the returned type and/or value.
+
+### Additional Fields
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `function_name` | string | ✅ | — | Name of the function to inspect after code runs |
+| `parameter_count_enabled` | boolean | No | `false` | Whether to verify the number of declared parameters |
+| `parameter_count` | integer | No | `0` | Expected number of declared parameters when `parameter_count_enabled` is true |
+| `return_assertion` | object | No | disabled | Optional function call + return-value assertion |
+
+The function existence/callability check always runs. `parameter_count_enabled` and `return_assertion.enabled` are optional extra checks.
+
+### `return_assertion` Fields
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `enabled` | boolean | No | `false` | Whether to call the function and inspect the returned value |
+| `arguments` | array | No | `[]` | Arguments passed to the function call |
+| `expected_type` | string | No | `"any"` | Expected return type: `"any"`, `"int"`, `"float"`, `"string"`, or `"list"` |
+| `value_assertion_enabled` | boolean | No | `true` when `expected_value` is present | Whether to compare the returned value |
+| `expected_value` | any | No | — | Expected return value for scalar checks |
+| `comparison` | string | No | `"equals"` | Scalar comparison operator (`"equals"`, `"gt"`, `"lt"`, `"gte"`, `"lte"`, `"contains"`, or `"type"`) |
+| `show_coerced_value_hint` | boolean | No | `false` | If true, failures can explain when the coerced return value matches but the type is wrong |
+| `show_expected` | boolean | No | `false` | Show the expected return value to the learner when this assertion fails |
+| `show_actual` | boolean | No | `false` | Show the actual return value to the learner when this assertion fails |
+| `success_message` | string | No | built-in default | Optional success message for the return assertion |
+| `failure_message` | string | No | built-in default / top-level `feedback_on_fail` | Optional failure message for the return assertion |
+| `list_assertions` | object | No | all disabled | Extra list-specific checks when the function returns a list |
+
+`return_assertion` reuses the same type, scalar comparison, coercion-hint, and list-assertion behaviour as `variable_state`, plus the same expected/actual and custom success/failure message options used by `stdout_match`.
+
+### Examples
+
+```json
+// Function must exist and take exactly 2 parameters
+{
+  "id": "test_has_add",
+  "type": "function_state",
+  "function_name": "add_numbers",
+  "parameter_count_enabled": true,
+  "parameter_count": 2,
+  "points": 3,
+  "feedback_on_fail": "Define add_numbers with exactly two inputs."
+}
+
+// Call a function and check the returned value and type
+{
+  "id": "test_add_result",
+  "type": "function_state",
+  "function_name": "add_numbers",
+  "return_assertion": {
+    "enabled": true,
+    "arguments": [2, 3],
+    "expected_type": "int",
+    "value_assertion_enabled": true,
+    "expected_value": 5,
+    "comparison": "equals",
+    "show_expected": true,
+    "show_actual": true,
+    "failure_message": "Calling add_numbers(2, 3) should give 5."
+  },
+  "points": 5,
+  "feedback_on_pass": "Great — add_numbers returns the right result."
+}
+
+// Return a list with a specific shape
+{
+  "id": "test_build_list",
+  "type": "function_state",
+  "function_name": "build_list",
+  "return_assertion": {
+    "enabled": true,
+    "arguments": ["cow", 3],
+    "expected_type": "list",
+    "show_actual": true,
+    "list_assertions": {
+      "length_enabled": true,
+      "length_value": 3,
+      "length_comparison": "equals",
+      "index_checks": [
+        { "index": 0, "expected_value": "cow", "expected_type": "string" }
+      ]
+    }
+  },
+  "points": 4,
+  "feedback_on_fail": "build_list should return a 3-item list starting with \"cow\"."
+}
+```
+
+### Notes
+
+- Function lookup uses the configured `function_name` as a JavaScript identifier, just like variable capture uses `variable_name`
+- Function calls run after the student's top-level code finishes
+- If the student's code calls `prompt(...)` during a `function_state` check, the runtime continues without failing on prompt-count mismatches
+- Each `function_state` test with a return assertion runs in its own execution context so side effects from one function call do not leak into another test
+- If the function throws an error when called, the test fails and the runtime error is recorded in the test detail
+
+---
+
 ## Code Execution Details
 
-Tests that require code execution (`stdout_match` and `variable_state`) share the same execution pipeline:
+Tests that require code execution (`stdout_match`, `variable_state`, and `function_state`) share the same execution pipeline:
 
 ### Web Worker Execution
 
@@ -451,7 +588,7 @@ Tests that require code execution (`stdout_match` and `variable_state`) share th
 2. An infinite loop trap is prepended (`var __loopTrap = 10000;`)
 3. Code is wrapped in a Web Worker with `console.log` interception
 4. Worker executes the code via `new Function(code)()`
-5. After execution, stdout, prompt responses, and requested variable state are sent back via `postMessage`
+5. After execution, stdout, prompt responses, requested variable state, and requested function metadata/call results are sent back via `postMessage`
 6. **Timeout**: 5 seconds. If the worker doesn't respond, it's terminated and the test reports "Execution timed out (possible infinite loop)"
 
 ### Fallback Execution

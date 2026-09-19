@@ -17,11 +17,14 @@ import {
 } from './field-value-matching.js';
 import { normalizeWorkspaceConnectednessMode } from './workspace-connectedness.js';
 import {
+  getFunctionReturnAssertion,
   getVariableListAssertions,
   getPromptInputs,
+  getStdoutExecutionContext,
   getStdoutOutputAssertion,
   getStdoutPromptAssertion,
   getTestPoints,
+  normalizeFunctionParameterCountEnabled,
   normalizeVariableType,
   normalizeVariableValueAssertionEnabled,
   normalizeTestConfig,
@@ -229,6 +232,7 @@ function normalizeDraftTestCase(testCase, index) {
     normalized.strict_prompt_inputs = shouldEnforcePromptInputCount(testCase);
     normalized.output_assertion = getStdoutOutputAssertion(testCase, { defaultEnabled: true });
     normalized.prompt_assertion = getStdoutPromptAssertion(testCase);
+    normalized.execution_context = getStdoutExecutionContext(testCase);
   } else if (type === 'block_structure') {
     normalized.conditions = normalizeDraftCondition(testCase.conditions);
   } else if (type === 'variable_state') {
@@ -245,6 +249,11 @@ function normalizeDraftTestCase(testCase, index) {
       : 'equals';
     normalized.show_coerced_value_hint = Boolean(testCase.show_coerced_value_hint);
     normalized.list_assertions = getVariableListAssertions(testCase);
+  } else if (type === 'function_state') {
+    normalized.function_name = asStringOr(testCase.function_name, '');
+    normalized.parameter_count_enabled = normalizeFunctionParameterCountEnabled(testCase);
+    normalized.parameter_count = asNonNegativeInteger(testCase.parameter_count, 0);
+    normalized.return_assertion = getFunctionReturnAssertion(testCase);
   }
 
   return normalized;
@@ -267,6 +276,10 @@ function normalizePublishTestCase(testCase) {
     }
     normalized.output_assertion = getStdoutOutputAssertion(testCase);
     normalized.prompt_assertion = getStdoutPromptAssertion(testCase);
+    const executionContext = getStdoutExecutionContext(testCase);
+    if (executionContext.scope === 'function') {
+      normalized.execution_context = executionContext;
+    }
   } else if (type === 'block_structure') {
     normalized.conditions = normalizePublishCondition(testCase.conditions);
   } else if (type === 'variable_state') {
@@ -292,6 +305,17 @@ function normalizePublishTestCase(testCase) {
     }
     if (testCase.list_assertions !== undefined) {
       normalized.list_assertions = getVariableListAssertions(testCase);
+    }
+  } else if (type === 'function_state') {
+    normalized.function_name = asStringOr(testCase.function_name, '');
+    if (testCase.parameter_count_enabled !== undefined) {
+      normalized.parameter_count_enabled = normalizeFunctionParameterCountEnabled(testCase);
+    }
+    if (testCase.parameter_count !== undefined) {
+      normalized.parameter_count = asNonNegativeInteger(testCase.parameter_count, 0);
+    }
+    if (testCase.return_assertion !== undefined) {
+      normalized.return_assertion = getFunctionReturnAssertion(testCase);
     }
   }
 
