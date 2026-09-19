@@ -10,6 +10,23 @@ const DIST = resolve(ROOT, 'dist');
 
 const target = process.argv.find((a) => a.startsWith('--target='))?.split('=')[1] || 'all';
 
+function getProductionBundleOptions() {
+  return {
+    target: ['es2020'],
+    define: {
+      'process.env.NODE_ENV': '"production"',
+    },
+    // Keep function/class names and local identifiers stable so Blockly's
+    // dynamic procedure/category machinery behaves the same in Firefox as it
+    // does in the unminified dev bundle.
+    keepNames: true,
+    minifySyntax: true,
+    minifyWhitespace: true,
+    minifyIdentifiers: false,
+    sourcemap: false,
+  };
+}
+
 async function bundleScormApp(outfile) {
   await esbuild.build({
     entryPoints: [resolve(SRC, 'scorm-template/js/app.js')],
@@ -17,12 +34,7 @@ async function bundleScormApp(outfile) {
     outfile,
     format: 'iife',
     globalName: 'BlocklyScorm',
-    minify: true,
-    sourcemap: false,
-    target: ['es2020'],
-    define: {
-      'process.env.NODE_ENV': '"production"',
-    },
+    ...getProductionBundleOptions(),
   });
 }
 
@@ -71,12 +83,7 @@ async function buildBuilder() {
     outfile: resolve(outDir, 'js/builder.bundle.js'),
     format: 'iife',
     globalName: 'ActivityBuilder',
-    minify: true,
-    sourcemap: false,
-    target: ['es2020'],
-    define: {
-      'process.env.NODE_ENV': '"production"',
-    },
+    ...getProductionBundleOptions(),
   });
 
   // Copy static assets
