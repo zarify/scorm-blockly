@@ -227,6 +227,8 @@ Define how student work is evaluated. See [Test Types](test-types.md) for full d
 4. Configure type-specific fields. `stdout_match` and `variable_state` support `prompt_inputs` when the program uses the input block, and output checks can also switch the execution scope from the whole main program to a specific function call. Missing or unused configured inputs fail the test explicitly only for the test types that expose that setting
 5. Write **feedback** shown when the test fails
 
+If the student toolbox includes function call blocks, the **Functions** category populates named call blocks automatically from the saved **Workspace** procedure definitions.
+
 ### Points System
 
 - Points can be any non-negative integers

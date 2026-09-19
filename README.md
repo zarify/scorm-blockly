@@ -84,6 +84,8 @@ Each activity is defined by a single JSON config file (`activity_config.json`) w
 
 Tests award integer **points** rather than percentages. `stdout_match` and `variable_state` can provide ordered `prompt_inputs` for Blockly programs that use the input/prompt block, and prompt input matching stays strict there: missing or unused configured inputs fail the test explicitly. `stdout_match` can also scope prompt/output assertions to a specific function call after top-level setup runs. `function_state` ignores prompt-count mismatches and simply continues with default empty prompt responses when prompts occur.
 
+When the student toolbox includes Blockly procedure call blocks, the **Functions** category now populates named call blocks automatically from the saved starter-workspace procedure definitions.
+
 ### Hint Triggers
 
 | Event | Description |

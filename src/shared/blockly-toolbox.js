@@ -14,6 +14,11 @@ const DEFAULT_CATEGORY_COLOUR_SEQUENCE = [
   '#995BA5',
 ];
 
+const PROCEDURE_CALL_BLOCK_TYPES = new Set([
+  'procedures_callnoreturn',
+  'procedures_callreturn',
+]);
+
 export const DEFAULT_TOOLBOX_BLOCK_LIBRARY = {
   Logic: [
     'controls_if', 'controls_ifelse', 'logic_compare', 'logic_operation',
@@ -276,7 +281,7 @@ export function getSupportedBlockLibrary(Blockly, blockLibrary, context) {
  */
 export function buildCategoryToolboxContents(Blockly, categories, context) {
   return categories
-    .map((cat) => {
+    .map((cat, index) => {
       if (cat.custom) {
         return {
           kind: 'category',
@@ -292,6 +297,15 @@ export function buildCategoryToolboxContents(Blockly, categories, context) {
         `${context}: ${cat.name}`,
       );
 
+      if (shouldUseDynamicProcedureCategory(supportedBlocks)) {
+        return {
+          kind: 'category',
+          name: cat.name,
+          colour: cat.colour || undefined,
+          custom: getDynamicProcedureCategoryKey(index),
+        };
+      }
+
       return {
         kind: 'category',
         name: cat.name,
@@ -300,6 +314,38 @@ export function buildCategoryToolboxContents(Blockly, categories, context) {
       };
     })
     .filter((cat) => cat.custom || (Array.isArray(cat.contents) && cat.contents.length > 0));
+}
+
+/**
+ * Register dynamic toolbox category callbacks needed by the given categories.
+ * @param {Blockly.WorkspaceSvg} workspace
+ * @param {typeof import('blockly')} Blockly
+ * @param {Array<{name: string, colour?: string, blocks?: string[], custom?: string}>} categories
+ * @returns {void}
+ */
+export function registerDynamicToolboxCategoryCallbacks(workspace, Blockly, categories) {
+  if (!workspace?.registerToolboxCategoryCallback || !Blockly?.Procedures?.flyoutCategory) {
+    return;
+  }
+
+  categories.forEach((cat, index) => {
+    if (cat?.custom) return;
+
+    const supportedBlocks = filterSupportedBlockTypes(
+      Blockly,
+      cat?.blocks || [],
+      `dynamic toolbox callback: ${cat?.name || `category ${index + 1}`}`,
+    );
+
+    if (!shouldUseDynamicProcedureCategory(supportedBlocks)) return;
+
+    const allowedBlockTypes = new Set(supportedBlocks);
+    workspace.registerToolboxCategoryCallback(
+      getDynamicProcedureCategoryKey(index),
+      (targetWorkspace) => Blockly.Procedures.flyoutCategory(targetWorkspace, false)
+        .filter((item) => item?.kind !== 'block' || allowedBlockTypes.has(item.type)),
+    );
+  });
 }
 
 /**
@@ -316,4 +362,12 @@ function warnUnsupportedBlockTypes(context, blockTypes) {
   console.warn(
     `[BlocklyToolbox] Ignoring unsupported block type(s) in ${context}: ${uniqueBlockTypes.join(', ')}`,
   );
+}
+
+function shouldUseDynamicProcedureCategory(blockTypes) {
+  return blockTypes.some((blockType) => PROCEDURE_CALL_BLOCK_TYPES.has(blockType));
+}
+
+function getDynamicProcedureCategoryKey(index) {
+  return `SCORM_PROCEDURE_${index}`;
 }
