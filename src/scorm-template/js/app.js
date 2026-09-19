@@ -158,6 +158,7 @@ async function handleRun() {
   setExecutionButtonState({ running: true });
 
   try {
+    dismissActiveBlocklyEditing();
     const code = generateCode();
     setResultsModalTitle('Run console');
     renderInteractiveConsole();
@@ -217,6 +218,7 @@ async function handleCheck() {
   setExecutionButtonState({ checking: true });
 
   try {
+    dismissActiveBlocklyEditing();
     const code = generateCode();
     const workspace = getWorkspace();
     const {
@@ -425,10 +427,6 @@ function renderInteractiveConsole() {
 
   panel.innerHTML = `
     <div class="console-shell">
-      <div class="console-header">
-        <h3>Interactive console</h3>
-        <p class="console-help">Program output appears here as it runs. When input is needed, type it below and press Enter.</p>
-      </div>
       <div class="console-transcript" data-console-transcript aria-live="polite" aria-label="Program console output"></div>
       <form class="console-input-bar hidden" data-console-form>
         <label class="console-input-label" for="console-stdin">Input</label>
@@ -446,6 +444,11 @@ function renderInteractiveConsole() {
     hasEntries: false,
     isRunning: true,
   };
+}
+
+function dismissActiveBlocklyEditing() {
+  document.activeElement?.blur?.();
+  Blockly.hideChaff?.();
 }
 
 function appendConsoleOutput(line) {
