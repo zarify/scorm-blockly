@@ -114,7 +114,7 @@ Open the activity as a student would. You should see:
 - **Centre**: Blockly workspace with your configured toolbox
 - **Results modal**: Run output or check results when opened
 
-Click **▶ Run Code** to execute the learner program, or **✓ Check** to run the automated tests.
+Click **▶ Run Code** to execute the learner program in the interactive console, or **✓ Check** to run the automated tests.
 
 ## Available Commands
 

@@ -262,6 +262,10 @@ body.modal-open {
   display: none;
 }
 
+.hidden {
+  display: none !important;
+}
+
 .results-modal-backdrop {
   position: absolute;
   inset: 0;
@@ -302,6 +306,11 @@ body.modal-open {
   min-width: 44px;
 }
 
+.results-modal-close:disabled,
+.results-modal-backdrop:disabled {
+  cursor: not-allowed;
+}
+
 .results-modal-body {
   display: flex;
   flex-direction: column;
@@ -317,6 +326,174 @@ body.modal-open {
   color: #999;
   font-style: italic;
   font-size: 14px;
+}
+
+.console-shell {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: min(50vh, 420px);
+}
+
+.console-header h3 {
+  font-size: 14px;
+  margin-bottom: 4px;
+}
+
+.console-help {
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.console-transcript {
+  --console-gutter-width: 72px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 260px;
+  max-height: min(50vh, 420px);
+  overflow-y: auto;
+  padding: 12px;
+  border-radius: 10px;
+  background: #111827;
+  color: #e5eefc;
+  font-family: ui-monospace, SFMono-Regular, Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.console-entry {
+  display: grid;
+  grid-template-columns: var(--console-gutter-width) minmax(0, 1fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.console-entry-badge {
+  width: var(--console-gutter-width);
+  padding: 2px 8px;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.2);
+  color: #cbd5e1;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.console-entry-value {
+  display: block;
+  min-width: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.console-entry-output .console-entry-value {
+  color: #e2e8f0;
+}
+
+.console-entry-prompt .console-entry-badge {
+  background: rgba(96, 165, 250, 0.18);
+  color: #bfdbfe;
+}
+
+.console-entry-prompt .console-entry-value {
+  color: #dbeafe;
+}
+
+.console-entry-input .console-entry-badge {
+  background: rgba(52, 211, 153, 0.16);
+  color: #a7f3d0;
+}
+
+.console-entry-input .console-entry-value {
+  color: #dcfce7;
+}
+
+.console-entry-error .console-entry-badge {
+  background: rgba(248, 113, 113, 0.2);
+  color: #fecaca;
+}
+
+.console-entry-error .console-entry-value {
+  color: #fecaca;
+}
+
+.console-entry-status .console-entry-badge {
+  background: rgba(250, 204, 21, 0.18);
+  color: #fde68a;
+}
+
+.console-entry-status .console-entry-value {
+  color: #fef3c7;
+}
+
+.console-cursor {
+  width: 9px;
+  height: 1.15em;
+  display: inline-block;
+  vertical-align: text-bottom;
+  border-radius: 2px;
+  background: #f8fafc;
+  animation: console-cursor-blink 1s steps(1, end) infinite;
+}
+
+@keyframes console-cursor-blink {
+  0%, 50% { opacity: 1; }
+  50.01%, 100% { opacity: 0; }
+}
+
+.console-prompt-suffix {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  vertical-align: baseline;
+}
+
+.console-input-bar {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 12px;
+  border: 1px solid #dbe4f0;
+  border-radius: 10px;
+  background: #f8fafc;
+}
+
+.console-input-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: #334155;
+}
+
+.console-input-bar[data-input-type="number"] .console-input-label::after {
+  content: " (number)";
+  color: #64748b;
+  font-weight: 500;
+}
+
+.console-input-field {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font: inherit;
+}
+
+.console-input-field:focus {
+  outline: 2px solid #93c5fd;
+  outline-offset: 1px;
+  border-color: #60a5fa;
+}
+
+.console-submit-button {
+  padding-inline: 16px;
 }
 
 .output-section,
@@ -501,5 +678,13 @@ body.modal-open {
   .results-modal-dialog {
     max-height: calc(100vh - 16px);
     width: 100%;
+  }
+
+  .console-transcript {
+    --console-gutter-width: 64px;
+  }
+
+  .console-input-bar {
+    grid-template-columns: 1fr;
   }
 }

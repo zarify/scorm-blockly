@@ -29,13 +29,13 @@ If `evaluation.require_previous_test_pass` is enabled (the default), test order 
 Runs the student's code and compares one or both captured runtime text streams:
 
 - **Console output** — text written via `console.log(...)`
-- **Prompt text** — the message strings passed into `window.prompt(...)`
+- **Prompt text** — the message strings shown when the learner program asks for input
 
 ### Additional Fields
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `prompt_inputs` | array of strings | No | `[]` | Values returned to successive `window.prompt()` calls |
+| `prompt_inputs` | array of strings | No | `[]` | Values returned to successive learner input requests |
 | `strict_prompt_inputs` | boolean | No | `true` | If true, extra or missing `prompt()` calls fail the test |
 | `output_assertion` | object | No | disabled unless legacy fields are present | Configures how captured stdout is checked |
 | `prompt_assertion` | object | No | disabled | Configures how captured prompt text is checked |
@@ -76,7 +76,7 @@ Both `output_assertion` and `prompt_assertion` use the same structure:
 
 **Important:** Blockly's `text_print` block generates `console.log(...)` calls. Each print block produces one line of output ending with `\n`.
 
-Prompt text is captured separately from stdout. Each `window.prompt(message)` call contributes its `message` string to the prompt transcript, and prompt messages are joined with `\n` **without** an automatic trailing newline.
+Prompt text is captured separately from stdout. Each learner input request contributes its message string to the prompt transcript, and prompt messages are joined with `\n` **without** an automatic trailing newline.
 
 If `prompt_assertion.match_any_item` is `true`, each prompt message is checked individually instead of joining all prompt text into one transcript. This is useful when a program has multiple prompts and you want to assert that **one whole prompt** is exactly `"Knock knock"` rather than merely appearing as a substring somewhere in the combined prompt text.
 
@@ -149,7 +149,7 @@ If `strict_prompt_inputs` is `false`, the test will still run even when the prog
 
 - Remember that Blockly's `text_print` adds `\n` after each print. Include trailing newlines in `output_assertion.expected` for exact stdout matching
 - Use `prompt_inputs` when the Blockly program asks the learner for input via the text prompt block
-- `prompt_inputs` are used by automated checks; the normal **▶ Run Code** action still uses real browser prompt dialogs for the live program run, while **✓ Check** uses each test's configured inputs
+- `prompt_inputs` are used by automated checks; the normal **▶ Run Code** action now uses the in-app interactive console for the live program run, while **✓ Check** uses each test's configured inputs
 - Prompt input matching is strict: if the program asks for more inputs than configured, or leaves configured inputs unused, the test fails explicitly
 - Prompt-only checks still need `prompt_inputs` if the code calls `prompt(...)`
 - Use `prompt_assertion.match_any_item: true` when you want exact/contains/regex matching against any one prompt message rather than against the whole combined prompt transcript
@@ -294,7 +294,7 @@ Runs the student's code and checks the type and/or value of a specific variable 
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `prompt_inputs` | array of strings | No | `[]` | Values returned to successive `window.prompt()` calls |
+| `prompt_inputs` | array of strings | No | `[]` | Values returned to successive learner input requests |
 | `strict_prompt_inputs` | boolean | No | `true` | If true, extra or missing `prompt()` calls fail the test before value comparison |
 | `variable_name` | string | ✅ | — | Name of the variable to inspect after code runs |
 | `expected_type` | string | No | `"any"` | Explicit variable type: `"any"`, `"int"`, `"float"`, `"string"`, or `"list"` |

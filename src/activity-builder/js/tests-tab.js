@@ -421,7 +421,7 @@ function renderTestTypeFields(tc) {
         <div class="form-group">
           <label>Prompt inputs</label>
           <textarea id="test-prompt-inputs" rows="3" placeholder="One prompt() response per line">${escapeHtml(formatPromptInputs(getPromptInputs(tc)))}</textarea>
-          <small>Returned to <code>window.prompt()</code> in order. Use the option below to decide whether extra or missing prompt() calls should fail the test.</small>
+          <small>Returned to successive learner input requests in order. Use the option below to decide whether extra or missing input steps should fail the test.</small>
         </div>
         <div class="form-group">
           <label class="checkbox-label">
@@ -446,7 +446,7 @@ function renderTestTypeFields(tc) {
           assertion: tc.prompt_assertion,
           expectedLabel: 'Expected prompt text',
           expectedPlaceholder: 'One prompt message per line',
-          helpText: 'Matches the text passed to <code>window.prompt()</code> in order, joined with newlines. A single prompt like <code>prompt("Knock knock")</code> is entered exactly as <code>Knock knock</code>.',
+          helpText: 'Matches the prompt text shown in the learner console in order, joined with newlines. A single prompt like <code>prompt("Knock knock")</code> is entered exactly as <code>Knock knock</code>.',
           matchAnyItemLabel: 'Match any single prompt instead of the combined prompt transcript',
           showExpectedLabel: 'Show expected prompt text when this check fails',
           showActualLabel: 'Show actual prompt text when this check fails',
@@ -475,7 +475,7 @@ function renderTestTypeFields(tc) {
         <div class="form-group">
           <label>Prompt inputs</label>
           <textarea id="test-prompt-inputs" rows="3" placeholder="One prompt() response per line">${escapeHtml(formatPromptInputs(getPromptInputs(tc)))}</textarea>
-          <small>Returned to <code>window.prompt()</code> in order before variable assertions run. Use the option below to decide whether extra or missing prompt() calls should fail the test.</small>
+          <small>Returned to successive learner input requests in order before variable assertions run. Use the option below to decide whether extra or missing input steps should fail the test.</small>
         </div>
         <div class="form-group">
           <label class="checkbox-label">

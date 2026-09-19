@@ -21,6 +21,8 @@ import {
 } from '../../shared/test-config.js';
 
 const EXECUTION_TIMEOUT_MS = 5000;
+const ASYNC_FUNCTION = Object.getPrototypeOf(async function emptyAsyncFunction() {}).constructor;
+export const INTERACTIVE_RUN_CANCELLED_ERROR = 'Run cancelled.';
 
 /**
  * @typedef {Object} TestResult
@@ -129,63 +131,19 @@ async function getExecutionResultForTest(testCase, generatedCode, executionPlans
 
 /**
  * Execute student code for an interactive run.
- * Uses the browser's real prompt() so learners/authors can supply input live.
  * @param {string} generatedCode
- * @returns {{ success: boolean, stdout: string, prompts: Array<{message: string, response: string | null, cancelled: boolean}>, error: string | null }}
+ * @param {{ onStdout?: (line: string) => void, requestInput?: ({ message: string, defaultValue: string, inputType: 'text' | 'number' }) => Promise<string> | string, isCancelled?: () => boolean }} [hooks]
+ * @returns {Promise<{ success: boolean, cancelled: boolean, stdout: string, variables: object, prompts: Array<{message: string, response: string | null, cancelled: boolean}>, promptDiagnostics: null, error: string | null }>}
  */
-export function executeInteractiveRun(generatedCode) {
-  const stdout = [];
-  const promptOwner = globalThis.window || globalThis;
-  const originalConsoleLog = console.log;
-  const originalPrompt = globalThis.prompt;
-  const originalWindowPrompt = promptOwner.prompt;
-  const nativePrompt =
-    typeof originalWindowPrompt === 'function'
-      ? originalWindowPrompt.bind(promptOwner)
-      : typeof originalPrompt === 'function'
-        ? originalPrompt.bind(globalThis)
-        : null;
-  const promptLog = [];
+export async function executeInteractiveRun(generatedCode, hooks = {}) {
+  const executionContext = createExecutionContext({
+    promptInputCount: null,
+    inputProvider: createInteractiveInputProvider(hooks.requestInput),
+    onStdout: hooks.onStdout,
+    isCancelled: hooks.isCancelled,
+  });
 
-  console.log = (...args) => stdout.push(args.map(String).join(' '));
-
-  const promptImpl = (message, defaultValue = '') => {
-    const normalizedMessage = String(message ?? '');
-    const normalizedDefault = defaultValue == null ? '' : String(defaultValue);
-    const response = nativePrompt ? nativePrompt(normalizedMessage, normalizedDefault) : normalizedDefault;
-
-    promptLog.push({
-      message: normalizedMessage,
-      response: response == null ? null : String(response),
-      cancelled: response == null,
-    });
-
-    return response;
-  };
-
-  globalThis.prompt = promptImpl;
-  promptOwner.prompt = promptImpl;
-
-  try {
-    new Function(generatedCode)();
-    return {
-      success: true,
-      stdout: stdout.join('\n') + (stdout.length > 0 ? '\n' : ''),
-      prompts: promptLog,
-      error: null,
-    };
-  } catch (err) {
-    return {
-      success: false,
-      stdout: stdout.join('\n') + (stdout.length > 0 ? '\n' : ''),
-      prompts: promptLog,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  } finally {
-    console.log = originalConsoleLog;
-    globalThis.prompt = originalPrompt;
-    promptOwner.prompt = originalWindowPrompt;
-  }
+  return executeProgramWithContext(generatedCode, executionContext);
 }
 
 /**
@@ -195,80 +153,8 @@ export function executeInteractiveRun(generatedCode) {
 async function executeCode(code, promptInputs = [], variableNames = []) {
   const variableCaptureSource = buildVariableCaptureSource(variableNames);
   const promptInputCount = promptInputs.length;
-
-  // Build worker code that captures console.log and variable state
-  const workerSource = `
-    const __stdout = [];
-    const __initialPromptInputs = ${JSON.stringify(promptInputs)};
-    const __promptLog = [];
-    const __makePrompt = function(initialInputs, shouldLog = true) {
-      const queue = [...initialInputs];
-      return function(message, defaultValue = '') {
-        const fallback = defaultValue == null ? '' : String(defaultValue);
-        const usedProvidedInput = queue.length > 0;
-        const response = usedProvidedInput ? String(queue.shift()) : fallback;
-        if (shouldLog) {
-          __promptLog.push({ message: String(message ?? ''), response, usedProvidedInput });
-        }
-        return response;
-      };
-    };
-    const __assignPrompt = function(promptImpl) {
-      self.prompt = promptImpl;
-      self.window = Object.assign(self.window || {}, { prompt: promptImpl });
-    };
-    console.log = function() {
-      const line = Array.from(arguments).map(String).join(' ');
-      __stdout.push(line);
-    };
-    __assignPrompt(__makePrompt(__initialPromptInputs));
-
-    try {
-      // Execute the student code
-      const __fn = new Function(${JSON.stringify(code)});
-      __fn();
-
-      const __vars = {};
-      if (${JSON.stringify(variableCaptureSource)} !== '{}') {
-        __assignPrompt(__makePrompt(__initialPromptInputs, false));
-        const __varFn = new Function(${JSON.stringify(code + '\nreturn ' + variableCaptureSource + ';')});
-        try {
-          const __result = __varFn();
-          Object.assign(__vars, __result);
-        } catch (e) {}
-      }
-
-      postMessage({
-        success: true,
-        stdout: __stdout.join('\\n') + ((__stdout.length > 0) ? '\\n' : ''),
-        variables: __vars,
-        prompts: __promptLog,
-        promptDiagnostics: {
-          configuredInputCount: __initialPromptInputs.length,
-          promptCallCount: __promptLog.length,
-          usedProvidedInputCount: __promptLog.filter((entry) => entry.usedProvidedInput).length,
-          underflowCount: __promptLog.filter((entry) => !entry.usedProvidedInput).length,
-          unusedInputCount: Math.max(0, __initialPromptInputs.length - __promptLog.filter((entry) => entry.usedProvidedInput).length)
-        },
-        error: null
-      });
-    } catch (err) {
-      postMessage({
-        success: false,
-        stdout: __stdout.join('\\n') + ((__stdout.length > 0) ? '\\n' : ''),
-        variables: {},
-        prompts: __promptLog,
-        promptDiagnostics: {
-          configuredInputCount: __initialPromptInputs.length,
-          promptCallCount: __promptLog.length,
-          usedProvidedInputCount: __promptLog.filter((entry) => entry.usedProvidedInput).length,
-          underflowCount: __promptLog.filter((entry) => !entry.usedProvidedInput).length,
-          unusedInputCount: Math.max(0, __initialPromptInputs.length - __promptLog.filter((entry) => entry.usedProvidedInput).length)
-        },
-        error: err.toString()
-      });
-    }
-  `;
+  const programSource = buildExecutableProgramSource(code, variableCaptureSource);
+  const workerSource = buildWorkerExecutionSource(programSource, promptInputs);
 
   return new Promise((resolve) => {
     try {
@@ -319,61 +205,285 @@ async function executeCode(code, promptInputs = [], variableNames = []) {
 /**
  * Fallback: execute code directly (no worker isolation).
  */
-function executeCodeDirect(code, promptInputs = [], variableNames = []) {
-  const stdout = [];
-  const origLog = console.log;
-  const promptOwner = globalThis.window || globalThis;
-  const origPrompt = globalThis.prompt;
-  const origWindowPrompt = promptOwner.prompt;
-  const remainingPromptInputs = [...promptInputs];
-  const promptLog = [];
+async function executeCodeDirect(code, promptInputs = [], variableNames = []) {
+  const executionContext = createExecutionContext({
+    promptInputCount: promptInputs.length,
+    inputProvider: createScriptedInputProvider(promptInputs),
+    variableNames,
+  });
 
-  console.log = (...args) => stdout.push(args.map(String).join(' '));
-  const promptImpl = (message, defaultValue = '') => {
-    const fallback = defaultValue == null ? '' : String(defaultValue);
-    const usedProvidedInput = remainingPromptInputs.length > 0;
-    const response = usedProvidedInput ? String(remainingPromptInputs.shift()) : fallback;
-    promptLog.push({ message: String(message ?? ''), response, usedProvidedInput });
-    return response;
+  return executeProgramWithContext(code, executionContext);
+}
+
+function buildExecutableProgramSource(code, variableCaptureSource) {
+  return [
+    'const console = { log: (...args) => __runtime.writeLine(...args) };',
+    code,
+    `return ${variableCaptureSource};`,
+  ].join('\n');
+}
+
+function buildWorkerExecutionSource(programSource, promptInputs) {
+  return `
+    const AsyncFunction = Object.getPrototypeOf(async function emptyAsyncFunction() {}).constructor;
+    const __stdout = [];
+    const __initialPromptInputs = ${JSON.stringify(promptInputs)};
+    const __promptLog = [];
+    const __queue = [...__initialPromptInputs];
+    const __programSource = ${JSON.stringify(programSource)};
+    const __runtime = {
+      async writeLine() {
+        const line = Array.from(arguments).map(String).join(' ');
+        __stdout.push(line);
+        return line;
+      },
+      async promptText(message, defaultValue = '') {
+        const normalizedMessage = String(message ?? '');
+        const normalizedDefault = defaultValue == null ? '' : String(defaultValue);
+        const usedProvidedInput = __queue.length > 0;
+        const response = usedProvidedInput ? String(__queue.shift()) : normalizedDefault;
+        __promptLog.push({
+          message: normalizedMessage,
+          response,
+          cancelled: false,
+          usedProvidedInput,
+        });
+        return response;
+      },
+      async promptNumber(message, defaultValue = '') {
+        const response = await __runtime.promptText(message, defaultValue);
+        if (response.trim() === '' || Number.isNaN(Number(response))) {
+          throw new Error('ValueError: could not convert string to float: ' + JSON.stringify(response));
+        }
+        return Number(response);
+      },
+      readVar(name, value) {
+        if (value === undefined) {
+          throw new Error("NameError: name '" + String(name) + "' is not defined");
+        }
+        return value;
+      },
+    };
+
+    const __buildPromptDiagnostics = function() {
+      const usedProvidedInputCount = __promptLog.filter((entry) => entry.usedProvidedInput).length;
+      return {
+        configuredInputCount: __initialPromptInputs.length,
+        promptCallCount: __promptLog.length,
+        usedProvidedInputCount,
+        underflowCount: Math.max(0, __promptLog.length - usedProvidedInputCount),
+        unusedInputCount: Math.max(0, __initialPromptInputs.length - usedProvidedInputCount),
+      };
+    };
+
+    const __postResult = function(success, variables, error) {
+      postMessage({
+        success,
+        stdout: __stdout.join('\\n') + (__stdout.length > 0 ? '\\n' : ''),
+        variables,
+        prompts: __promptLog.map((entry) => ({
+          message: entry.message,
+          response: entry.response,
+          cancelled: entry.cancelled,
+        })),
+        promptDiagnostics: __buildPromptDiagnostics(),
+        error,
+      });
+    };
+
+    (async function runProgram() {
+      try {
+        const __fn = new AsyncFunction('__runtime', __programSource);
+        const __variables = await __fn(__runtime);
+        __postResult(true, __variables && typeof __variables === 'object' ? __variables : {}, null);
+      } catch (error) {
+        __postResult(false, {}, error instanceof Error ? error.message : String(error));
+      }
+    })();
+  `;
+}
+
+function createScriptedInputProvider(promptInputs = []) {
+  const queue = [...promptInputs];
+  return async ({ defaultValue = '' } = {}) => {
+    const normalizedDefault = defaultValue == null ? '' : String(defaultValue);
+    const usedProvidedInput = queue.length > 0;
+    return {
+      response: usedProvidedInput ? String(queue.shift()) : normalizedDefault,
+      usedProvidedInput,
+      cancelled: false,
+    };
   };
-  globalThis.prompt = promptImpl;
-  promptOwner.prompt = promptImpl;
+}
 
+function createInteractiveInputProvider(requestInput) {
+  return async ({ message, defaultValue = '', inputType = 'text' } = {}) => {
+    const normalizedDefault = defaultValue == null ? '' : String(defaultValue);
+    if (typeof requestInput !== 'function') {
+      return {
+        response: normalizedDefault,
+        usedProvidedInput: false,
+        cancelled: false,
+      };
+    }
+
+    const response = await requestInput({
+      message: String(message ?? ''),
+      defaultValue: normalizedDefault,
+      inputType,
+    });
+
+    return {
+      response: response == null ? normalizedDefault : String(response),
+      usedProvidedInput: true,
+      cancelled: false,
+    };
+  };
+}
+
+function createExecutionContext({
+  promptInputCount = null,
+  inputProvider,
+  onStdout = null,
+  variableNames = [],
+  isCancelled = null,
+} = {}) {
+  const stdout = [];
+  const promptLog = [];
+  const assertNotCancelled = () => {
+    if (typeof isCancelled === 'function' && isCancelled()) {
+      throw new Error(INTERACTIVE_RUN_CANCELLED_ERROR);
+    }
+  };
+
+  const runtime = {
+    async writeLine(...args) {
+      assertNotCancelled();
+      const line = args.map(String).join(' ');
+      stdout.push(line);
+      if (typeof onStdout === 'function') {
+        onStdout(line);
+      }
+      return line;
+    },
+    async promptText(message, defaultValue = '') {
+      assertNotCancelled();
+      const normalizedMessage = String(message ?? '');
+      const normalizedDefault = defaultValue == null ? '' : String(defaultValue);
+      const inputResult = typeof inputProvider === 'function'
+        ? await inputProvider({
+            message: normalizedMessage,
+            defaultValue: normalizedDefault,
+            inputType: 'text',
+          })
+        : {
+            response: normalizedDefault,
+            usedProvidedInput: false,
+            cancelled: false,
+          };
+      assertNotCancelled();
+
+      const response = inputResult?.response == null
+        ? normalizedDefault
+        : String(inputResult.response);
+
+      promptLog.push({
+        message: normalizedMessage,
+        response,
+        cancelled: inputResult?.cancelled === true,
+        usedProvidedInput: inputResult?.usedProvidedInput === true,
+      });
+
+      return response;
+    },
+    async promptNumber(message, defaultValue = '') {
+      const response = await runtime.promptText(message, defaultValue);
+      return coercePromptNumber(response);
+    },
+    readVar(name, value) {
+      if (value === undefined) {
+        throw new Error(`NameError: name '${String(name)}' is not defined`);
+      }
+      return value;
+    },
+  };
+
+  return {
+    stdout,
+    promptLog,
+    promptInputCount,
+    runtime,
+    variableNames,
+  };
+}
+
+async function executeProgramWithContext(code, executionContext) {
   try {
-    new Function(code)();
-    const variables = readVariablesFromCode(code, variableNames, promptInputs);
-    console.log = origLog;
-    globalThis.prompt = origPrompt;
-    promptOwner.prompt = origWindowPrompt;
-    return {
+    const variableCaptureSource = buildVariableCaptureSource(executionContext.variableNames || []);
+    const programSource = buildExecutableProgramSource(code, variableCaptureSource);
+    const variables = await new ASYNC_FUNCTION('__runtime', programSource)(executionContext.runtime);
+    return buildExecutionResult(executionContext, {
       success: true,
-      stdout: stdout.join('\n') + (stdout.length > 0 ? '\n' : ''),
-      variables,
-      prompts: promptLog,
-      promptDiagnostics: createPromptDiagnostics(
-        promptInputs.length,
-        promptLog.length,
-        promptLog.filter((entry) => entry.usedProvidedInput).length,
-      ),
+      cancelled: false,
+      variables: isObjectLike(variables) ? variables : {},
       error: null,
-    };
-  } catch (err) {
-    console.log = origLog;
-    globalThis.prompt = origPrompt;
-    promptOwner.prompt = origWindowPrompt;
-    return {
+    });
+  } catch (error) {
+    return buildExecutionResult(executionContext, {
       success: false,
-      stdout: stdout.join('\n') + (stdout.length > 0 ? '\n' : ''),
+      cancelled: isCancellationError(error),
       variables: {},
-      prompts: promptLog,
-      promptDiagnostics: createPromptDiagnostics(
-        promptInputs.length,
-        promptLog.length,
-        promptLog.filter((entry) => entry.usedProvidedInput).length,
-      ),
-      error: err.toString(),
-    };
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
+}
+
+function buildExecutionResult(executionContext, { success, cancelled = false, variables, error }) {
+  const usedProvidedInputCount = executionContext.promptLog
+    .filter((entry) => entry.usedProvidedInput)
+    .length;
+
+  return {
+    success,
+    cancelled,
+    stdout: executionContext.stdout.join('\n') + (executionContext.stdout.length > 0 ? '\n' : ''),
+    variables,
+    prompts: executionContext.promptLog.map((entry) => ({
+      message: entry.message,
+      response: entry.response,
+      cancelled: entry.cancelled,
+    })),
+    promptDiagnostics: executionContext.promptInputCount == null
+      ? null
+      : createPromptDiagnostics(
+          executionContext.promptInputCount,
+          executionContext.promptLog.length,
+          usedProvidedInputCount,
+        ),
+    error,
+  };
+}
+
+function isCancellationError(error) {
+  return (error instanceof Error ? error.message : String(error)) === INTERACTIVE_RUN_CANCELLED_ERROR;
+}
+
+function coercePromptNumber(value) {
+  const normalizedValue = String(value ?? '');
+  if (normalizedValue.trim() === '') {
+    throw new Error(`ValueError: could not convert string to float: ${JSON.stringify(normalizedValue)}`);
+  }
+
+  const numericValue = Number(normalizedValue);
+  if (Number.isNaN(numericValue)) {
+    throw new Error(`ValueError: could not convert string to float: ${JSON.stringify(normalizedValue)}`);
+  }
+
+  return numericValue;
+}
+
+function isObjectLike(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function assertStdout(tc, executionResult) {
@@ -833,31 +943,6 @@ function buildVariableCaptureSource(variableNames) {
   if (safeVariableNames.length === 0) return '{}';
 
   return `{${safeVariableNames.map((name) => `${JSON.stringify(name)}: typeof ${name} !== "undefined" ? ${name} : undefined`).join(',')}}`;
-}
-
-function readVariablesFromCode(code, variableNames, promptInputs = []) {
-  const variableCaptureSource = buildVariableCaptureSource(variableNames);
-  if (variableCaptureSource === '{}') return {};
-
-  const promptOwner = globalThis.window || globalThis;
-  const origPrompt = globalThis.prompt;
-  const origWindowPrompt = promptOwner.prompt;
-  const remainingPromptInputs = [...promptInputs];
-  const promptImpl = (_message, defaultValue = '') => {
-    const fallback = defaultValue == null ? '' : String(defaultValue);
-    return remainingPromptInputs.length > 0 ? String(remainingPromptInputs.shift()) : fallback;
-  };
-
-  try {
-    globalThis.prompt = promptImpl;
-    promptOwner.prompt = promptImpl;
-    return new Function(`${code}\nreturn ${variableCaptureSource};`)();
-  } catch {
-    return {};
-  } finally {
-    globalThis.prompt = origPrompt;
-    promptOwner.prompt = origWindowPrompt;
-  }
 }
 
 function isSafeIdentifier(name) {
