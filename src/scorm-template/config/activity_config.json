@@ -75,13 +75,18 @@
   "evaluation": {
     "grading_mode": "pass_fail",
     "max_score": 100,
+    "feedback_on_all_pass": "Excellent work — every automated check passed.",
     "test_cases": [
       {
         "id": "test_output",
         "type": "stdout_match",
-        "expected_output": "Hello, World!\n",
-        "match_mode": "exact",
+        "output_assertion": {
+          "enabled": true,
+          "expected": "Hello, World!\n",
+          "match_mode": "exact"
+        },
         "points": 10,
+        "feedback_on_pass": "Perfect — you printed Hello, World!",
         "feedback_on_fail": "Make sure you're printing exactly: Hello, World!"
       }
     ]

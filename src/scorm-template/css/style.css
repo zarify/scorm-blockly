@@ -403,6 +403,16 @@ body.modal-open {
   font-size: 15px;
 }
 
+.results-title {
+  font-size: 15px;
+}
+
+.results-subtitle {
+  margin-top: 6px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
 .results-pass {
   background: #e8f5e9;
   color: #2e7d32;
@@ -427,6 +437,32 @@ body.modal-open {
 
 .result-pass .result-icon { color: #2e7d32; }
 .result-fail .result-icon { color: #c62828; }
+
+.result-detail-section,
+.result-detail-note {
+  margin: 8px 0 0 24px;
+}
+
+.result-detail-title {
+  margin-bottom: 4px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.result-detail-value {
+  padding: 10px 12px;
+  background: #f8f9fb;
+  border-radius: 6px;
+  white-space: pre-wrap;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.result-detail-note {
+  font-size: 12px;
+  line-height: 1.5;
+}
 
 /* Code panel */
 #code-panel {

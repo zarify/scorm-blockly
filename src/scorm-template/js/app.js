@@ -380,21 +380,47 @@ function buildExecutionOutputHtml(execution) {
 function buildCheckResultsHtml(results, totalScore, maxScore) {
   const percent = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
   const allPassed = results.every((result) => result.passed);
+  const allPassSubtitle = allPassed ? String(config?.evaluation?.feedback_on_all_pass || '').trim() : '';
 
   let html = '<div class="results-section">';
   html += `<div class="results-header ${allPassed ? 'results-pass' : 'results-fail'}">`;
+  html += '<div class="results-title">';
   html += `<strong>${allPassed ? '✅ All automated checks passed!' : '❌ Some automated checks failed'}</strong>`;
   html += ` — Score: ${percent}%`;
+  html += '</div>';
+  if (allPassSubtitle) {
+    html += `<div class="results-subtitle formatted-text">${renderInlineMarkdown(allPassSubtitle)}</div>`;
+  }
   html += '</div>';
   html += '<ul class="results-list">';
   for (const result of results) {
     html += `<li class="${result.passed ? 'result-pass' : 'result-fail'} formatted-text">`;
     html += `<span class="result-icon">${result.passed ? '✓' : '✗'}</span> `;
     html += renderInlineMarkdown(result.feedback);
+    if (result.student_detail) {
+      html += renderStudentDetailHtml(result.student_detail);
+    }
     html += '</li>';
   }
   html += '</ul></div>';
   return html;
+}
+
+function renderStudentDetailHtml(studentDetail) {
+  if (typeof studentDetail === 'string') {
+    return `<div class="result-detail-note formatted-text">${renderInlineMarkdown(studentDetail)}</div>`;
+  }
+
+  if (studentDetail && Array.isArray(studentDetail.sections)) {
+    return studentDetail.sections.map((section) => `
+      <div class="result-detail-section">
+        <div class="result-detail-title">${escapeHtml(section.title || '')}</div>
+        <pre class="result-detail-value">${escapeHtml(section.value || '')}</pre>
+      </div>
+    `).join('');
+  }
+
+  return '';
 }
 
 function areHintsEnabled(cfg) {

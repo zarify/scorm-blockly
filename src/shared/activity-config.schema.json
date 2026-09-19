@@ -148,6 +148,10 @@
           "maximum": 100,
           "default": 100
         },
+        "feedback_on_all_pass": {
+          "type": "string",
+          "description": "Optional subtitle shown in the results header when every automated test passes"
+        },
         "test_cases": {
           "type": "array",
           "minItems": 1,
@@ -335,6 +339,106 @@
         }
       }
     },
+    "runtime_text_assertion": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Whether this assertion is checked or ignored"
+        },
+        "expected": {
+          "type": "string",
+          "description": "Expected prompt text or stdout transcript"
+        },
+        "match_mode": {
+          "type": "string",
+          "enum": ["exact", "contains", "regex"],
+          "default": "exact"
+        },
+        "match_any_item": {
+          "type": "boolean",
+          "default": false,
+          "description": "When true, compare against any individual captured item instead of the combined transcript"
+        },
+        "show_expected": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the expected value to the student when this assertion fails"
+        },
+        "show_actual": {
+          "type": "boolean",
+          "default": false,
+          "description": "Show the actual captured value to the student when this assertion fails"
+        },
+        "success_message": {
+          "type": "string",
+          "description": "Optional student-facing success message for this assertion"
+        },
+        "failure_message": {
+          "type": "string",
+          "description": "Optional student-facing failure message for this assertion"
+        }
+      }
+    },
+    "variable_list_index_check": {
+      "type": "object",
+      "properties": {
+        "index": { "type": "integer", "minimum": 0 },
+        "expected_value": {},
+        "expected_type": {
+          "type": "string",
+          "enum": ["any", "int", "float", "string", "list"],
+          "default": "any"
+        }
+      },
+      "required": ["index"]
+    },
+    "variable_list_assertions": {
+      "type": "object",
+      "properties": {
+        "length_enabled": { "type": "boolean", "default": false },
+        "length_value": { "type": "integer", "minimum": 0, "default": 0 },
+        "length_comparison": {
+          "type": "string",
+          "enum": ["equals", "gt", "lt", "gte", "lte"],
+          "default": "equals"
+        },
+        "values_enabled": { "type": "boolean", "default": false },
+        "values_match_mode": {
+          "type": "string",
+          "enum": [
+            "exact_order",
+            "same_values_any_order",
+            "expected_subset_of_actual",
+            "expected_superset_of_actual"
+          ],
+          "default": "exact_order"
+        },
+        "expected_values": {
+          "type": "array",
+          "default": []
+        },
+        "item_types_enabled": { "type": "boolean", "default": false },
+        "item_type_mode": {
+          "type": "string",
+          "enum": ["all", "some", "none"],
+          "default": "all"
+        },
+        "expected_item_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["int", "float", "string", "list"]
+          },
+          "default": []
+        },
+        "index_checks": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/variable_list_index_check" },
+          "default": []
+        }
+      }
+    },
     "test_case": {
       "type": "object",
       "required": ["id", "type"],
@@ -354,6 +458,7 @@
           "minimum": 0,
           "description": "Legacy alias for points"
         },
+        "feedback_on_pass": { "type": "string" },
         "feedback_on_fail": { "type": "string" }
       },
       "oneOf": [
@@ -365,14 +470,29 @@
               "items": { "type": "string" },
               "default": []
             },
-            "expected_output": { "type": "string" },
+            "strict_prompt_inputs": {
+              "type": "boolean",
+              "default": true,
+              "description": "If true, extra or missing prompt() calls fail the test"
+            },
+            "output_assertion": {
+              "$ref": "#/definitions/runtime_text_assertion"
+            },
+            "prompt_assertion": {
+              "$ref": "#/definitions/runtime_text_assertion"
+            },
+            "expected_output": {
+              "type": "string",
+              "description": "Legacy alias for output_assertion.expected"
+            },
             "match_mode": {
               "type": "string",
               "enum": ["exact", "contains", "regex"],
-              "default": "exact"
+              "default": "exact",
+              "description": "Legacy alias for output_assertion.match_mode"
             }
           },
-          "required": ["type", "expected_output"]
+          "required": ["type"]
         },
         {
           "properties": {
@@ -389,15 +509,35 @@
               "items": { "type": "string" },
               "default": []
             },
+            "strict_prompt_inputs": {
+              "type": "boolean",
+              "default": true
+            },
             "variable_name": { "type": "string" },
+            "expected_type": {
+              "type": "string",
+              "enum": ["any", "int", "float", "string", "list"],
+              "default": "any"
+            },
+            "value_assertion_enabled": {
+              "type": "boolean",
+              "default": true
+            },
             "expected_value": {},
             "comparison": {
               "type": "string",
               "enum": ["equals", "gt", "lt", "gte", "lte", "contains", "type"],
               "default": "equals"
+            },
+            "show_coerced_value_hint": {
+              "type": "boolean",
+              "default": false
+            },
+            "list_assertions": {
+              "$ref": "#/definitions/variable_list_assertions"
             }
           },
-          "required": ["type", "variable_name", "expected_value"]
+          "required": ["type", "variable_name"]
         }
       ]
     }

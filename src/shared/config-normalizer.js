@@ -4,7 +4,6 @@ import {
   VALID_CONDITION_TYPES,
   VALID_HINT_DISPLAY_MODES,
   VALID_HINT_EVENTS,
-  VALID_STDOUT_MATCH_MODES,
   VALID_TEST_TYPES,
   VALID_VARIABLE_COMPARISONS,
   validateHintConfig,
@@ -16,7 +15,17 @@ import {
   normalizeFieldValueCaseSensitivity,
   normalizeFieldValueMatchMode,
 } from './field-value-matching.js';
-import { getPromptInputs, getTestPoints, normalizeTestConfig } from './test-config.js';
+import {
+  getVariableListAssertions,
+  getPromptInputs,
+  getStdoutOutputAssertion,
+  getStdoutPromptAssertion,
+  getTestPoints,
+  normalizeVariableType,
+  normalizeVariableValueAssertionEnabled,
+  normalizeTestConfig,
+  shouldEnforcePromptInputCount,
+} from './test-config.js';
 
 /**
  * Normalize an arbitrary config object into a builder-safe draft shape.
@@ -133,6 +142,7 @@ function createBaseConfig(source) {
     evaluation: {
       grading_mode: asStringOr(evaluation.grading_mode, 'weighted'),
       max_score: asOptionalInteger(evaluation.max_score, 100) ?? 100,
+      feedback_on_all_pass: asStringOr(evaluation.feedback_on_all_pass, ''),
       test_cases: [],
     },
   };
@@ -208,24 +218,31 @@ function normalizeDraftTestCase(testCase, index) {
     id: asStringOr(testCase.id, `test_${index + 1}`),
     type,
     points: getTestPoints(testCase),
+    feedback_on_pass: asStringOr(testCase.feedback_on_pass, ''),
     feedback_on_fail: asStringOr(testCase.feedback_on_fail, ''),
   };
 
   if (type === 'stdout_match') {
     normalized.prompt_inputs = getPromptInputs(testCase);
-    normalized.expected_output = asStringOr(testCase.expected_output, '');
-    normalized.match_mode = VALID_STDOUT_MATCH_MODES.includes(testCase.match_mode)
-      ? testCase.match_mode
-      : 'exact';
+    normalized.strict_prompt_inputs = shouldEnforcePromptInputCount(testCase);
+    normalized.output_assertion = getStdoutOutputAssertion(testCase, { defaultEnabled: true });
+    normalized.prompt_assertion = getStdoutPromptAssertion(testCase);
   } else if (type === 'block_structure') {
     normalized.conditions = normalizeDraftCondition(testCase.conditions);
   } else if (type === 'variable_state') {
     normalized.prompt_inputs = getPromptInputs(testCase);
+    normalized.strict_prompt_inputs = shouldEnforcePromptInputCount(testCase);
     normalized.variable_name = asStringOr(testCase.variable_name, '');
-    normalized.expected_value = testCase.expected_value ?? '';
+    normalized.expected_type = normalizeVariableType(testCase.expected_type);
+    normalized.value_assertion_enabled = normalizeVariableValueAssertionEnabled(testCase);
+    if (testCase.expected_value !== undefined) {
+      normalized.expected_value = testCase.expected_value;
+    }
     normalized.comparison = VALID_VARIABLE_COMPARISONS.includes(testCase.comparison)
       ? testCase.comparison
       : 'equals';
+    normalized.show_coerced_value_hint = Boolean(testCase.show_coerced_value_hint);
+    normalized.list_assertions = getVariableListAssertions(testCase);
   }
 
   return normalized;
@@ -237,25 +254,42 @@ function normalizePublishTestCase(testCase) {
     id: asStringOr(testCase.id, ''),
     type,
     points: getTestPoints(testCase),
+    ...(testCase.feedback_on_pass !== undefined ? { feedback_on_pass: asStringOr(testCase.feedback_on_pass, '') } : {}),
     ...(testCase.feedback_on_fail !== undefined ? { feedback_on_fail: asStringOr(testCase.feedback_on_fail, '') } : {}),
   };
 
   if (type === 'stdout_match') {
     normalized.prompt_inputs = getPromptInputs(testCase);
-    normalized.expected_output = asStringOr(testCase.expected_output, '');
-    if (testCase.match_mode !== undefined) {
-      normalized.match_mode = asStringOr(testCase.match_mode, '');
+    if (testCase.strict_prompt_inputs !== undefined) {
+      normalized.strict_prompt_inputs = shouldEnforcePromptInputCount(testCase);
     }
+    normalized.output_assertion = getStdoutOutputAssertion(testCase);
+    normalized.prompt_assertion = getStdoutPromptAssertion(testCase);
   } else if (type === 'block_structure') {
     normalized.conditions = normalizePublishCondition(testCase.conditions);
   } else if (type === 'variable_state') {
     normalized.prompt_inputs = getPromptInputs(testCase);
+    if (testCase.strict_prompt_inputs !== undefined) {
+      normalized.strict_prompt_inputs = shouldEnforcePromptInputCount(testCase);
+    }
     normalized.variable_name = asStringOr(testCase.variable_name, '');
+    if (testCase.expected_type !== undefined) {
+      normalized.expected_type = normalizeVariableType(testCase.expected_type);
+    }
+    if (testCase.value_assertion_enabled !== undefined || testCase.expected_value !== undefined) {
+      normalized.value_assertion_enabled = normalizeVariableValueAssertionEnabled(testCase);
+    }
     if (testCase.expected_value !== undefined) {
       normalized.expected_value = testCase.expected_value;
     }
     if (testCase.comparison !== undefined) {
       normalized.comparison = asStringOr(testCase.comparison, '');
+    }
+    if (testCase.show_coerced_value_hint !== undefined) {
+      normalized.show_coerced_value_hint = Boolean(testCase.show_coerced_value_hint);
+    }
+    if (testCase.list_assertions !== undefined) {
+      normalized.list_assertions = getVariableListAssertions(testCase);
     }
   }
 
