@@ -17,21 +17,43 @@ Tests define how student work is evaluated. Each test runs an assertion and cont
 | `id` | string | ✅ | Unique test identifier |
 | `type` | string | ✅ | `"stdout_match"`, `"block_structure"`, or `"variable_state"` |
 | `points` | integer | ✅ | Integer points awarded when the test passes |
+| `feedback_on_pass` | string | No | Custom message shown to students when this test passes |
 | `feedback_on_fail` | string | No | Custom message shown to students when this test fails |
 
 ---
 
 ## `stdout_match`
 
-Runs the student's code and compares the captured `console.log` output against an expected string.
+Runs the student's code and compares one or both captured runtime text streams:
+
+- **Console output** — text written via `console.log(...)`
+- **Prompt text** — the message strings passed into `window.prompt(...)`
 
 ### Additional Fields
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `prompt_inputs` | array of strings | No | `[]` | Values returned to successive `window.prompt()` calls |
-| `expected_output` | string | ✅ | — | The expected console output |
+| `output_assertion` | object | No | disabled unless legacy fields are present | Configures how captured stdout is checked |
+| `prompt_assertion` | object | No | disabled | Configures how captured prompt text is checked |
+| `expected_output` | string | Legacy | — | Legacy alias for `output_assertion.expected` |
+| `match_mode` | string | Legacy | `"exact"` | Legacy alias for `output_assertion.match_mode` |
+
+At least one of `output_assertion` or `prompt_assertion` must be enabled.
+
+### Assertion Fields
+
+Both `output_assertion` and `prompt_assertion` use the same structure:
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `enabled` | boolean | No | `false` (`output_assertion` usually `true` in the builder) | Whether this stream is checked or ignored |
+| `expected` | string | No | `""` | Expected runtime text for this stream |
 | `match_mode` | string | No | `"exact"` | How to compare: `"exact"`, `"contains"`, or `"regex"` |
+| `show_expected` | boolean | No | `false` | Show the expected value to the learner if this assertion fails |
+| `show_actual` | boolean | No | `false` | Show the captured value to the learner if this assertion fails |
+| `success_message` | string | No | built-in default | Optional success message for this assertion |
+| `failure_message` | string | No | built-in default / top-level `feedback_on_fail` | Optional failure message for this assertion |
 
 ### Match Modes
 
@@ -45,10 +67,12 @@ Runs the student's code and compares the captured `console.log` output against a
 
 1. Student code is executed in a Web Worker
 2. `console.log()` calls are intercepted — each call produces one line
-3. Lines are joined with `\n`
+3. Output lines are joined with `\n`
 4. A trailing `\n` is added if there was any output
 
 **Important:** Blockly's `text_print` block generates `console.log(...)` calls. Each print block produces one line of output ending with `\n`.
+
+Prompt text is captured separately from stdout. Each `window.prompt(message)` call contributes its `message` string to the prompt transcript, and prompt messages are joined with `\n` **without** an automatic trailing newline.
 
 ### Examples
 
@@ -57,39 +81,68 @@ Runs the student's code and compares the captured `console.log` output against a
 {
   "id": "test_hello",
   "type": "stdout_match",
-  "expected_output": "Hello, World!\n",
-  "match_mode": "exact",
+  "output_assertion": {
+    "enabled": true,
+    "expected": "Hello, World!\n",
+    "match_mode": "exact"
+  },
   "points": 10,
+  "feedback_on_pass": "Nice work — your output is exactly right!",
   "feedback_on_fail": "Make sure you print exactly: Hello, World!"
 }
 
-// Output contains a substring
+// Prompt text only
 {
-  "id": "test_has_greeting",
+  "id": "test_prompt_message",
   "type": "stdout_match",
-  "expected_output": "Hello",
-  "match_mode": "contains",
+  "prompt_inputs": ["cow"],
+  "output_assertion": {
+    "enabled": false
+  },
+  "prompt_assertion": {
+    "enabled": true,
+    "expected": "Knock knock",
+    "match_mode": "exact",
+    "show_expected": true,
+    "failure_message": "Use the prompt text \"Knock knock\"."
+  },
   "points": 5,
-  "feedback_on_fail": "Your output should include the word 'Hello'"
+  "feedback_on_pass": "Great — your prompt text is correct.",
+  "feedback_on_fail": "Check the text used in your prompt block."
 }
 
-// Regex pattern match
+// Check both prompt text and output with student-facing detail
 {
-  "id": "test_numbers",
+  "id": "test_io",
   "type": "stdout_match",
-  "expected_output": "^(\\d+\\n){3}$",
-  "match_mode": "regex",
+  "prompt_inputs": ["Ada"],
+  "output_assertion": {
+    "enabled": true,
+    "expected": "Hello, Ada!\n",
+    "match_mode": "exact",
+    "show_expected": true,
+    "show_actual": true
+  },
+  "prompt_assertion": {
+    "enabled": true,
+    "expected": "^What is your name\\?$",
+    "match_mode": "regex",
+    "show_expected": true
+  },
   "points": 6,
-  "feedback_on_fail": "Expected three numbers, each on a new line"
+  "feedback_on_pass": "Both your prompt and output are correct.",
+  "feedback_on_fail": "Make sure both the prompt text and printed greeting are correct."
 }
 ```
 
 ### Tips
 
-- Remember that Blockly's `text_print` adds `\n` after each print. Include trailing newlines in `expected_output` for exact matching
+- Remember that Blockly's `text_print` adds `\n` after each print. Include trailing newlines in `output_assertion.expected` for exact stdout matching
 - Use `prompt_inputs` when the Blockly program asks the learner for input via the text prompt block
 - `prompt_inputs` are used by automated checks; the normal **▶ Run Code** action still uses real browser prompt dialogs for the live program run, while **✓ Check** uses each test's configured inputs
 - Prompt input matching is strict: if the program asks for more inputs than configured, or leaves configured inputs unused, the test fails explicitly
+- Prompt-only checks still need `prompt_inputs` if the code calls `prompt(...)`
+- `feedback_on_pass` sets the overall success message for the test. For `stdout_match`, it overrides any assertion-specific success messages
 - Use `contains` for partial checking when exact whitespace doesn't matter
 - Use `regex` when multiple valid outputs are acceptable (e.g., any 3-digit number)
 

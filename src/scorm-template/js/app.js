@@ -380,17 +380,26 @@ function buildExecutionOutputHtml(execution) {
 function buildCheckResultsHtml(results, totalScore, maxScore) {
   const percent = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
   const allPassed = results.every((result) => result.passed);
+  const allPassSubtitle = allPassed ? String(config?.evaluation?.feedback_on_all_pass || '').trim() : '';
 
   let html = '<div class="results-section">';
   html += `<div class="results-header ${allPassed ? 'results-pass' : 'results-fail'}">`;
+  html += '<div class="results-title">';
   html += `<strong>${allPassed ? '✅ All automated checks passed!' : '❌ Some automated checks failed'}</strong>`;
   html += ` — Score: ${percent}%`;
+  html += '</div>';
+  if (allPassSubtitle) {
+    html += `<div class="results-subtitle formatted-text">${renderInlineMarkdown(allPassSubtitle)}</div>`;
+  }
   html += '</div>';
   html += '<ul class="results-list">';
   for (const result of results) {
     html += `<li class="${result.passed ? 'result-pass' : 'result-fail'} formatted-text">`;
     html += `<span class="result-icon">${result.passed ? '✓' : '✗'}</span> `;
     html += renderInlineMarkdown(result.feedback);
+    if (result.student_detail) {
+      html += `<pre class="result-detail">${escapeHtml(result.student_detail)}</pre>`;
+    }
     html += '</li>';
   }
   html += '</ul></div>';

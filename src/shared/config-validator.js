@@ -1,5 +1,11 @@
 import * as Blockly from 'blockly';
-import { getTestPoints } from './test-config.js';
+import {
+  getStdoutOutputAssertion,
+  getStdoutPromptAssertion,
+  getTestPoints,
+  hasEnabledStdoutAssertion,
+  VALID_RUNTIME_TEXT_MATCH_MODES,
+} from './test-config.js';
 import { BLOCK_PATTERN_TYPE, registerBlockPatternBlocks } from './block-pattern.js';
 import {
   createFieldValueMatcher,
@@ -10,7 +16,7 @@ import {
 } from './field-value-matching.js';
 
 export const VALID_TEST_TYPES = ['stdout_match', 'block_structure', 'variable_state'];
-export const VALID_STDOUT_MATCH_MODES = ['exact', 'contains', 'regex'];
+export const VALID_STDOUT_MATCH_MODES = VALID_RUNTIME_TEXT_MATCH_MODES;
 export const VALID_VARIABLE_COMPARISONS = ['equals', 'gt', 'lt', 'gte', 'lte', 'contains', 'type'];
 export const VALID_HINT_DISPLAY_MODES = ['triggered', 'checklist'];
 export const VALID_FIELD_VALUE_MATCH_MODES = SHARED_VALID_FIELD_VALUE_MATCH_MODES;
@@ -78,6 +84,15 @@ export function validateConfig(config) {
   validateRequired(config, 'evaluation', 'object', errors);
   if (config.evaluation) {
     validateRequired(config.evaluation, 'test_cases', 'array', errors, 'evaluation');
+    if (
+      config.evaluation.feedback_on_all_pass !== undefined
+      && typeof config.evaluation.feedback_on_all_pass !== 'string'
+    ) {
+      errors.push({
+        path: 'evaluation.feedback_on_all_pass',
+        message: 'Must be a string',
+      });
+    }
     if (Array.isArray(config.evaluation.test_cases)) {
       if (config.evaluation.test_cases.length === 0) {
         errors.push({ path: 'evaluation.test_cases', message: 'Must have at least one test case' });
@@ -236,14 +251,42 @@ function validateTestCase(tc, index, errors) {
     }
   }
 
+  if (tc.feedback_on_pass !== undefined && typeof tc.feedback_on_pass !== 'string') {
+    errors.push({ path: `${prefix}.feedback_on_pass`, message: 'Must be a string' });
+  }
+  if (tc.feedback_on_fail !== undefined && typeof tc.feedback_on_fail !== 'string') {
+    errors.push({ path: `${prefix}.feedback_on_fail`, message: 'Must be a string' });
+  }
+
   if (tc.type && !VALID_TEST_TYPES.includes(tc.type)) {
     errors.push({ path: `${prefix}.type`, message: `Must be one of: ${VALID_TEST_TYPES.join(', ')}` });
   }
 
   if (tc.type === 'stdout_match') {
-    validateRequired(tc, 'expected_output', 'string', errors, prefix);
+    if (tc.expected_output !== undefined && typeof tc.expected_output !== 'string') {
+      errors.push({ path: `${prefix}.expected_output`, message: 'Must be a string' });
+    }
     if (tc.match_mode && !VALID_STDOUT_MATCH_MODES.includes(tc.match_mode)) {
       errors.push({ path: `${prefix}.match_mode`, message: 'Must be exact, contains, or regex' });
+    }
+    validateRuntimeTextAssertion(tc.output_assertion, `${prefix}.output_assertion`, errors);
+    validateRuntimeTextAssertion(tc.prompt_assertion, `${prefix}.prompt_assertion`, errors);
+
+    if (!hasEnabledStdoutAssertion(tc)) {
+      errors.push({
+        path: prefix,
+        message: 'stdout_match must enable output_assertion, prompt_assertion, or both',
+      });
+    }
+
+    const outputAssertion = getStdoutOutputAssertion(tc);
+    if (outputAssertion.enabled && typeof outputAssertion.expected !== 'string') {
+      errors.push({ path: `${prefix}.output_assertion.expected`, message: 'Must be a string' });
+    }
+
+    const promptAssertion = getStdoutPromptAssertion(tc);
+    if (promptAssertion.enabled && typeof promptAssertion.expected !== 'string') {
+      errors.push({ path: `${prefix}.prompt_assertion.expected`, message: 'Must be a string' });
     }
   } else if (tc.type === 'block_structure') {
     if (!tc.conditions) {
@@ -259,6 +302,49 @@ function validateTestCase(tc, index, errors) {
     if (tc.comparison && !VALID_VARIABLE_COMPARISONS.includes(tc.comparison)) {
       errors.push({ path: `${prefix}.comparison`, message: 'Invalid comparison operator' });
     }
+  }
+}
+
+function validateRuntimeTextAssertion(assertion, path, errors) {
+  if (assertion === undefined) return;
+
+  if (!assertion || typeof assertion !== 'object' || Array.isArray(assertion)) {
+    errors.push({ path, message: 'Must be an object' });
+    return;
+  }
+
+  if (assertion.enabled !== undefined && typeof assertion.enabled !== 'boolean') {
+    errors.push({ path: `${path}.enabled`, message: 'Must be a boolean' });
+  }
+  if (assertion.expected !== undefined && typeof assertion.expected !== 'string') {
+    errors.push({ path: `${path}.expected`, message: 'Must be a string' });
+  }
+  if (
+    assertion.match_mode !== undefined
+    && !VALID_STDOUT_MATCH_MODES.includes(assertion.match_mode)
+  ) {
+    errors.push({
+      path: `${path}.match_mode`,
+      message: 'Must be exact, contains, or regex',
+    });
+  }
+  if (assertion.show_expected !== undefined && typeof assertion.show_expected !== 'boolean') {
+    errors.push({ path: `${path}.show_expected`, message: 'Must be a boolean' });
+  }
+  if (assertion.show_actual !== undefined && typeof assertion.show_actual !== 'boolean') {
+    errors.push({ path: `${path}.show_actual`, message: 'Must be a boolean' });
+  }
+  if (
+    assertion.success_message !== undefined
+    && typeof assertion.success_message !== 'string'
+  ) {
+    errors.push({ path: `${path}.success_message`, message: 'Must be a string' });
+  }
+  if (
+    assertion.failure_message !== undefined
+    && typeof assertion.failure_message !== 'string'
+  ) {
+    errors.push({ path: `${path}.failure_message`, message: 'Must be a string' });
   }
 }
 

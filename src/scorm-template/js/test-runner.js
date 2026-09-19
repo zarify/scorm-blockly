@@ -2,7 +2,7 @@
  * Test Runner — Executes student code and evaluates against test cases.
  *
  * Three assertion types:
- * - stdout_match: compare console.log output
+ * - stdout_match: compare configured runtime text assertions (stdout, prompt text, or both)
  * - block_structure: inspect workspace for required block patterns
  * - variable_state: inspect variable values after execution
  *
@@ -10,6 +10,11 @@
  */
 
 import { evaluateCondition } from '../../shared/workspace-inspector.js';
+import {
+  getPromptInputs as getConfiguredPromptInputs,
+  getStdoutOutputAssertion,
+  getStdoutPromptAssertion,
+} from '../../shared/test-config.js';
 
 const EXECUTION_TIMEOUT_MS = 5000;
 
@@ -21,6 +26,7 @@ const EXECUTION_TIMEOUT_MS = 5000;
  * @property {number} score - Points earned (points if passed, 0 if not)
  * @property {string} feedback - Student-facing feedback
  * @property {string} [detail] - Additional detail for debugging
+ * @property {string} [student_detail] - Optional extra detail shown to the student
  */
 
 /**
@@ -348,6 +354,7 @@ function assertStdout(tc, executionResult) {
       score: 0,
       feedback: promptMismatch.feedback,
       detail: promptMismatch.detail,
+      student_detail: promptMismatch.detail,
     };
   }
 
@@ -362,34 +369,42 @@ function assertStdout(tc, executionResult) {
     };
   }
 
-  const actual = executionResult.stdout;
-  const expected = tc.expected_output;
-  const mode = tc.match_mode || 'exact';
-  let passed = false;
-
-  switch (mode) {
-    case 'exact':
-      passed = actual === expected;
-      break;
-    case 'contains':
-      passed = actual.includes(expected);
-      break;
-    case 'regex':
-      try {
-        passed = new RegExp(expected).test(actual);
-      } catch {
-        passed = false;
-      }
-      break;
+  const assertions = [];
+  const outputAssertion = getStdoutOutputAssertion(tc);
+  if (outputAssertion.enabled) {
+    assertions.push(evaluateRuntimeTextAssertion({
+      assertion: outputAssertion,
+      actual: executionResult.stdout,
+      label: 'Output',
+      defaultSuccessMessage: 'Output matches!',
+      defaultFailureMessage: 'Expected output did not match.',
+    }));
   }
+
+  const promptAssertion = getStdoutPromptAssertion(tc);
+  if (promptAssertion.enabled) {
+    assertions.push(evaluateRuntimeTextAssertion({
+      assertion: promptAssertion,
+      actual: getPromptTranscript(executionResult.prompts),
+      label: 'Prompt text',
+      defaultSuccessMessage: 'Prompt text matches!',
+      defaultFailureMessage: 'Expected prompt text did not match.',
+    }));
+  }
+
+  const failedAssertions = assertions.filter((assertion) => !assertion.passed);
+  const passed = failedAssertions.length === 0;
 
   return {
     id: tc.id,
     passed,
     points,
     score: passed ? points : 0,
-    feedback: passed ? 'Output matches!' : tc.feedback_on_fail || `Expected output did not match.`,
-    detail: passed ? null : `Expected: ${JSON.stringify(expected)}\nGot: ${JSON.stringify(actual)}`,
+    feedback: passed
+      ? tc.feedback_on_pass || buildStdoutSuccessFeedback(assertions)
+      : buildStdoutFailureFeedback(tc, failedAssertions),
+    detail: passed ? null : failedAssertions.map((assertion) => assertion.detail).join('\n\n'),
+    student_detail: passed ? null : buildStudentFacingAssertionDetail(failedAssertions),
   };
 }
 
@@ -403,7 +418,7 @@ function assertBlockStructure(tc, workspace) {
     points,
     score: result.passed ? points : 0,
     feedback: result.passed
-      ? 'Block structure is correct!'
+      ? tc.feedback_on_pass || 'Block structure is correct!'
       : tc.feedback_on_fail || 'Required block arrangement not found.',
     detail: result.detail,
   };
@@ -481,7 +496,7 @@ function assertVariableState(tc, executionResult) {
     points,
     score: passed ? points : 0,
     feedback: passed
-      ? `Variable "${tc.variable_name}" has the correct value!`
+      ? tc.feedback_on_pass || `Variable "${tc.variable_name}" has the correct value!`
       : tc.feedback_on_fail || `Variable "${tc.variable_name}" doesn't have the expected value.`,
     detail: passed ? null : `Expected ${tc.variable_name} ${comparison} ${expected}, got ${actual}`,
   };
@@ -492,9 +507,7 @@ function getExecutionPlanKey(promptInputs) {
 }
 
 function getPromptInputs(testCase) {
-  return Array.isArray(testCase?.prompt_inputs)
-    ? testCase.prompt_inputs.map((value) => String(value))
-    : [];
+  return getConfiguredPromptInputs(testCase);
 }
 
 function getTestPoints(testCase) {
@@ -580,4 +593,101 @@ function getPromptMismatch(executionResult) {
   }
 
   return null;
+}
+
+function evaluateRuntimeTextAssertion({
+  assertion,
+  actual,
+  label,
+  defaultSuccessMessage,
+  defaultFailureMessage,
+}) {
+  let passed = false;
+
+  switch (assertion.match_mode) {
+    case 'exact':
+      passed = actual === assertion.expected;
+      break;
+    case 'contains':
+      passed = actual.includes(assertion.expected);
+      break;
+    case 'regex':
+      try {
+        passed = new RegExp(assertion.expected).test(actual);
+      } catch {
+        passed = false;
+      }
+      break;
+  }
+
+  const successMessage = assertion.success_message || defaultSuccessMessage;
+  const failureMessage = assertion.failure_message || defaultFailureMessage;
+
+  return {
+    label,
+    expected: assertion.expected,
+    actual,
+    passed,
+    feedback: passed ? successMessage : failureMessage,
+    usedCustomSuccessMessage: Boolean(assertion.success_message),
+    usedCustomFailureMessage: Boolean(assertion.failure_message),
+    detail: `${label} (${assertion.match_mode})\nExpected: ${JSON.stringify(assertion.expected)}\nGot: ${JSON.stringify(actual)}`,
+    studentDetail: passed ? null : createStudentAssertionDetail(label, assertion, actual),
+  };
+}
+
+function buildStdoutSuccessFeedback(assertions) {
+  const customMessages = assertions
+    .filter((assertion) => assertion.usedCustomSuccessMessage)
+    .map((assertion) => assertion.feedback);
+
+  if (customMessages.length > 0) {
+    return customMessages.join(' ');
+  }
+
+  if (assertions.length === 1) {
+    return assertions[0].feedback;
+  }
+
+  return 'Prompt text and output match!';
+}
+
+function buildStdoutFailureFeedback(testCase, failedAssertions) {
+  if (failedAssertions.some((assertion) => assertion.usedCustomFailureMessage)) {
+    return failedAssertions.map((assertion) => assertion.feedback).join(' ');
+  }
+
+  if (testCase.feedback_on_fail) {
+    return testCase.feedback_on_fail;
+  }
+
+  if (failedAssertions.length === 1) {
+    return failedAssertions[0].feedback;
+  }
+
+  return 'Prompt text and output did not match.';
+}
+
+function buildStudentFacingAssertionDetail(failedAssertions) {
+  const details = failedAssertions
+    .map((assertion) => assertion.studentDetail)
+    .filter(Boolean);
+
+  return details.length > 0 ? details.join('\n\n') : null;
+}
+
+function createStudentAssertionDetail(label, assertion, actual) {
+  const lines = [];
+  if (assertion.show_expected) {
+    lines.push(`Expected ${label.toLowerCase()}:\n${JSON.stringify(assertion.expected)}`);
+  }
+  if (assertion.show_actual) {
+    lines.push(`Actual ${label.toLowerCase()}:\n${JSON.stringify(actual)}`);
+  }
+  return lines.length > 0 ? lines.join('\n\n') : null;
+}
+
+function getPromptTranscript(prompts) {
+  if (!Array.isArray(prompts) || prompts.length === 0) return '';
+  return prompts.map((entry) => String(entry?.message ?? '')).join('\n');
 }

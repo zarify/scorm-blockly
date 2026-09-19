@@ -20,6 +20,8 @@ import { renderPatternBuilder } from './pattern-builder.js';
 import {
   formatPromptInputs,
   getPromptInputs,
+  getStdoutOutputAssertion,
+  getStdoutPromptAssertion,
   getTestPoints,
   parsePromptInputs,
   setTestPoints,
@@ -29,7 +31,7 @@ let selectedTestIndex = -1;
 let suppressSelectedTestEditorSync = false;
 
 const TEST_TYPES = [
-  { value: 'stdout_match', label: 'Output match (stdout)' },
+  { value: 'stdout_match', label: 'Output/prompt text check' },
   { value: 'block_structure', label: 'Block structure check' },
   { value: 'variable_state', label: 'Variable value check' },
 ];
@@ -68,9 +70,26 @@ function addTest() {
     id,
     type: 'stdout_match',
     prompt_inputs: [],
-    expected_output: '',
-    match_mode: 'exact',
+    output_assertion: {
+      enabled: true,
+      expected: '',
+      match_mode: 'exact',
+      show_expected: false,
+      show_actual: false,
+      success_message: '',
+      failure_message: '',
+    },
+    prompt_assertion: {
+      enabled: false,
+      expected: '',
+      match_mode: 'exact',
+      show_expected: false,
+      show_actual: false,
+      success_message: '',
+      failure_message: '',
+    },
     points: 1,
+    feedback_on_pass: '',
     feedback_on_fail: '',
   });
 
@@ -133,6 +152,13 @@ function renderTestEditor() {
   }
 
   const tc = tests[selectedTestIndex];
+  const successHelp = tc.type === 'stdout_match'
+    ? '<small>Shown when the whole test passes. For prompt/output checks, this overrides assertion-specific success messages.</small>'
+    : '';
+  const failureLabel = tc.type === 'stdout_match' ? 'Fallback feedback on fail' : 'Feedback on fail';
+  const failureHelp = tc.type === 'stdout_match'
+    ? '<small>Shown only when the enabled prompt/output checks do not provide their own failure message.</small>'
+    : '';
 
   let html = `
     <div class="form-group">
@@ -152,8 +178,14 @@ function renderTestEditor() {
       <small>Integer points awarded when this test passes.</small>
     </div>
     <div class="form-group">
-      <label>Feedback on fail</label>
+      <label>Feedback on pass</label>
+      <textarea id="test-feedback-pass" rows="2" placeholder="Message shown to student when this test passes">${escapeHtml(tc.feedback_on_pass || '')}</textarea>
+      ${successHelp}
+    </div>
+    <div class="form-group">
+      <label>${failureLabel}</label>
       <textarea id="test-feedback" rows="2" placeholder="Message shown to student when this test fails">${escapeHtml(tc.feedback_on_fail || '')}</textarea>
+      ${failureHelp}
     </div>
   `;
 
@@ -170,6 +202,7 @@ function renderTestEditor() {
       id: tc.id,
       type: v,
       points: getTestPoints(tc),
+      feedback_on_pass: tc.feedback_on_pass,
       feedback_on_fail: tc.feedback_on_fail,
     };
     const bindCheckbox = (selector, field) => {
@@ -183,8 +216,24 @@ function renderTestEditor() {
     };
     if (v === 'stdout_match') {
       newTc.prompt_inputs = getPromptInputs(tc);
-      newTc.expected_output = '';
-      newTc.match_mode = 'exact';
+      newTc.output_assertion = {
+        enabled: true,
+        expected: '',
+        match_mode: 'exact',
+        show_expected: false,
+        show_actual: false,
+        success_message: '',
+        failure_message: '',
+      };
+      newTc.prompt_assertion = {
+        enabled: false,
+        expected: '',
+        match_mode: 'exact',
+        show_expected: false,
+        show_actual: false,
+        success_message: '',
+        failure_message: '',
+      };
     } else if (v === 'block_structure') {
       newTc.conditions = { type: 'workspace_empty' };
     } else if (v === 'variable_state') {
@@ -211,6 +260,7 @@ function renderTestEditor() {
     renderTestList();
   });
 
+  bindField('test-feedback-pass', (v) => { tc.feedback_on_pass = v; });
   bindField('test-feedback', (v) => { tc.feedback_on_fail = v; });
 }
 
@@ -219,26 +269,39 @@ function renderTestTypeFields(tc) {
   let html = '';
 
   switch (tc.type) {
-    case 'stdout_match':
+    case 'stdout_match': {
+      tc.output_assertion = getStdoutOutputAssertion(tc, { defaultEnabled: true });
+      tc.prompt_assertion = getStdoutPromptAssertion(tc);
+
       html = `
         <div class="form-group">
           <label>Prompt inputs</label>
           <textarea id="test-prompt-inputs" rows="3" placeholder="One prompt() response per line">${escapeHtml(formatPromptInputs(getPromptInputs(tc)))}</textarea>
-          <small>Returned to <code>window.prompt()</code> in order. If the program asks for more or fewer inputs than listed here, the test fails explicitly.</small>
+          <small>Returned to <code>window.prompt()</code> in order. If the program asks for more or fewer inputs than listed here, the test fails explicitly, even for prompt-only checks.</small>
         </div>
-        <div class="form-group">
-          <label>Expected output</label>
-          <textarea id="test-expected-output" rows="4" placeholder="Expected console output">${escapeHtml(tc.expected_output || '')}</textarea>
-          <small>Use actual newlines — each line of expected output on its own line. A trailing newline is added automatically by print blocks.</small>
-        </div>
-        <div class="form-group">
-          <label>Match mode</label>
-          <select id="test-match-mode">
-            ${MATCH_MODES.map((m) => `<option value="${m.value}" ${(tc.match_mode || 'exact') === m.value ? 'selected' : ''}>${m.label}</option>`).join('')}
-          </select>
-        </div>
+        ${renderRuntimeTextAssertionEditor({
+          prefix: 'test-output',
+          title: 'Console output',
+          assertion: tc.output_assertion,
+          expectedLabel: 'Expected output',
+          expectedPlaceholder: 'Expected console output',
+          helpText: 'Use actual newlines — each line of expected output on its own line. A trailing newline is added automatically by print blocks.',
+          showExpectedLabel: 'Show expected output when this check fails',
+          showActualLabel: 'Show actual output when this check fails',
+        })}
+        ${renderRuntimeTextAssertionEditor({
+          prefix: 'test-prompt',
+          title: 'Prompt text',
+          assertion: tc.prompt_assertion,
+          expectedLabel: 'Expected prompt text',
+          expectedPlaceholder: 'One prompt message per line',
+          helpText: 'Matches the text passed to <code>window.prompt()</code> in order, joined with newlines. A single prompt like <code>prompt("Knock knock")</code> is entered exactly as <code>Knock knock</code>.',
+          showExpectedLabel: 'Show expected prompt text when this check fails',
+          showActualLabel: 'Show actual prompt text when this check fails',
+        })}
       `;
       break;
+    }
 
     case 'block_structure':
       html = `
@@ -282,8 +345,8 @@ function renderTestTypeFields(tc) {
   switch (tc.type) {
     case 'stdout_match':
       bindField('test-prompt-inputs', (v) => { tc.prompt_inputs = parsePromptInputs(v); });
-      bindField('test-expected-output', (v) => { tc.expected_output = v; });
-      bindField('test-match-mode', (v) => { tc.match_mode = v; });
+      bindRuntimeTextAssertionFields('test-output', tc.output_assertion);
+      bindRuntimeTextAssertionFields('test-prompt', tc.prompt_assertion);
       break;
 
     case 'block_structure':
@@ -535,6 +598,72 @@ function renderSimpleConditionFields(container, condition, onChange) {
   bind('.cond-mx', 'max', (v) => parseInt(v) || 10);
 }
 
+function renderRuntimeTextAssertionEditor({
+  prefix,
+  title,
+  assertion,
+  expectedLabel,
+  expectedPlaceholder,
+  helpText,
+  showExpectedLabel,
+  showActualLabel,
+}) {
+  return `
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="${prefix}-enabled" ${assertion.enabled ? 'checked' : ''}>
+        Verify ${escapeHtml(title.toLowerCase())}
+      </label>
+    </div>
+    <fieldset id="${prefix}-fields" ${assertion.enabled ? '' : 'disabled'} style="border:1px solid #ddd;border-radius:6px;padding:12px;margin:0 0 12px">
+      <legend style="padding:0 6px;font-weight:600">${escapeHtml(title)}</legend>
+      <div class="form-group">
+        <label>${expectedLabel}</label>
+        <textarea id="${prefix}-expected" rows="3" placeholder="${escapeAttr(expectedPlaceholder)}">${escapeHtml(assertion.expected || '')}</textarea>
+        <small>${helpText}</small>
+      </div>
+      <div class="form-group">
+        <label>Match mode</label>
+        <select id="${prefix}-match-mode">
+          ${MATCH_MODES.map((mode) => `<option value="${mode.value}" ${assertion.match_mode === mode.value ? 'selected' : ''}>${mode.label}</option>`).join('')}
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="${prefix}-show-expected" ${assertion.show_expected ? 'checked' : ''}>
+          ${showExpectedLabel}
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="${prefix}-show-actual" ${assertion.show_actual ? 'checked' : ''}>
+          ${showActualLabel}
+        </label>
+      </div>
+      <div class="form-group">
+        <label>Success message</label>
+        <textarea id="${prefix}-success-message" rows="2" placeholder="Optional message shown when this check passes">${escapeHtml(assertion.success_message || '')}</textarea>
+      </div>
+      <div class="form-group">
+        <label>Failure message</label>
+        <textarea id="${prefix}-failure-message" rows="2" placeholder="Optional message shown when this check fails">${escapeHtml(assertion.failure_message || '')}</textarea>
+      </div>
+    </fieldset>
+  `;
+}
+
+function bindRuntimeTextAssertionFields(prefix, assertion) {
+  bindCheckedField(`${prefix}-enabled`, (checked) => {
+    assertion.enabled = checked;
+    const fieldset = document.getElementById(`${prefix}-fields`);
+    if (fieldset) fieldset.disabled = !checked;
+  });
+  bindField(`${prefix}-expected`, (value) => { assertion.expected = value; });
+  bindField(`${prefix}-match-mode`, (value) => { assertion.match_mode = value; });
+  bindCheckedField(`${prefix}-show-expected`, (checked) => { assertion.show_expected = checked; });
+  bindCheckedField(`${prefix}-show-actual`, (checked) => { assertion.show_actual = checked; });
+  bindField(`${prefix}-success-message`, (value) => { assertion.success_message = value; });
+  bindField(`${prefix}-failure-message`, (value) => { assertion.failure_message = value; });
+}
+
 function updateWeightIndicator() {
   const el = document.getElementById('weight-indicator');
   if (!el) return;
@@ -564,6 +693,15 @@ function bindField(id, setter) {
   const event = el.tagName === 'SELECT' ? 'change' : 'input';
   el.addEventListener(event, (e) => {
     setter(e.target.value);
+    emitLocalTestChange();
+  });
+}
+
+function bindCheckedField(id, setter) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('change', (e) => {
+    setter(e.target.checked);
     emitLocalTestChange();
   });
 }

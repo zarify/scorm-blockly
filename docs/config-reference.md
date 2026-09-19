@@ -219,6 +219,7 @@ For longer mixed chains/subtrees, `trigger.conditions` can also be a `block_patt
 |-------|------|----------|---------|--------|-------------|
 | `grading_mode` | string | No | `"weighted"` | `"pass_fail"`, `"weighted"` | ⚠️ **Not yet implemented at runtime.** Intended: pass_fail = 100 or 0, weighted = sum of passing test points. Currently the LMS score is derived from points earned divided by total available points. |
 | `max_score` | integer | No | `100` | `1`–`100` | ⚠️ **Not yet implemented at runtime.** Score is always reported as 0–100 percentage. |
+| `feedback_on_all_pass` | string | No | — | — | Subtitle shown inside the green results header when every automated test passes |
 | `test_cases` | array | ✅ | — | Minimum 1 | Array of test case objects |
 
 ### Grading Modes
@@ -239,6 +240,7 @@ All test cases share these fields:
 | `type` | string | ✅ | — | `"stdout_match"`, `"block_structure"`, or `"variable_state"` |
 | `points` | integer | ✅ | — | Integer points awarded when the test passes |
 | `weight` | integer | Legacy | — | Legacy alias for `points`, still accepted on import |
+| `feedback_on_pass` | string | No | — | Custom message shown when this test passes |
 | `feedback_on_fail` | string | No | — | Custom message shown when this test fails |
 
 See [Test Types](test-types.md) for type-specific fields.
@@ -249,13 +251,18 @@ See [Test Types](test-types.md) for type-specific fields.
   "evaluation": {
     "grading_mode": "weighted",
     "max_score": 100,
+    "feedback_on_all_pass": "Excellent work — every automated check passed.",
     "test_cases": [
       {
         "id": "test_output",
         "type": "stdout_match",
-        "expected_output": "1\n2\n3\n",
-        "match_mode": "exact",
+        "output_assertion": {
+          "enabled": true,
+          "expected": "1\n2\n3\n",
+          "match_mode": "exact"
+        },
         "points": 6,
+        "feedback_on_pass": "Great job — your output is exactly right.",
         "feedback_on_fail": "Expected output: 1, 2, 3 (each on a new line)"
       },
       {
@@ -337,8 +344,13 @@ Here is a minimal but complete config:
       {
         "id": "test_hello",
         "type": "stdout_match",
-        "expected_output": "Hello, World!\n",
+        "output_assertion": {
+          "enabled": true,
+          "expected": "Hello, World!\n",
+          "match_mode": "exact"
+        },
         "points": 10,
+        "feedback_on_pass": "Perfect — you printed Hello, World!",
         "feedback_on_fail": "Make sure you print exactly: Hello, World!"
       }
     ]
