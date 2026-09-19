@@ -62,6 +62,7 @@ function createDefaultConfig() {
       grading_mode: 'weighted',
       max_score: 100,
       feedback_on_all_pass: '',
+      require_previous_test_pass: true,
       test_cases: [],
     },
   };

@@ -18,7 +18,7 @@ Welcome to the documentation for the **Moodle Blockly SCORM** activity engine. T
 | Guide | Description |
 |-------|-------------|
 | [Configuration Reference](config-reference.md) | Every field in `activity_config.json` explained |
-| [Condition Reference](condition-reference.md) | All 10 condition types with parameters and examples |
+| [Condition Reference](condition-reference.md) | All 11 condition types with parameters and examples |
 | [Test Types](test-types.md) | The 3 assertion types: stdout, block structure, variable state |
 | [Hint System](hint-system.md) | Triggers, conditions, progressive revelation, and timing |
 

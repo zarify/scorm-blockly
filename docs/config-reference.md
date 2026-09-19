@@ -220,6 +220,7 @@ For longer mixed chains/subtrees, `trigger.conditions` can also be a `block_patt
 | `grading_mode` | string | No | `"weighted"` | `"pass_fail"`, `"weighted"` | ⚠️ **Not yet implemented at runtime.** Intended: pass_fail = 100 or 0, weighted = sum of passing test points. Currently the LMS score is derived from points earned divided by total available points. |
 | `max_score` | integer | No | `100` | `1`–`100` | ⚠️ **Not yet implemented at runtime.** Score is always reported as 0–100 percentage. |
 | `feedback_on_all_pass` | string | No | — | — | Subtitle shown inside the green results header when every automated test passes |
+| `require_previous_test_pass` | boolean | No | `true` | — | If `true`, tests run in list order and later tests stay locked until the previous test passes. Students see only the executed test feedback plus a generic “other tests remain unpassed” message. |
 | `test_cases` | array | ✅ | — | Minimum 1 | Array of test case objects |
 
 ### Grading Modes
@@ -229,6 +230,15 @@ For longer mixed chains/subtrees, `trigger.conditions` can also be a `block_patt
 **`weighted`** (default): Each test contributes its points to the score. If a student earns 6 out of 10 total points, they get 60/100.
 
 **`pass_fail`**: Score is 100 if ALL tests pass, 0 if any test fails.
+
+### Sequential test gating
+
+When `require_previous_test_pass` is `true` (the default), tests run strictly in the order shown in the builder:
+
+1. The first test always runs.
+2. Each later test runs only if the previous test passed.
+3. After the first failure, remaining tests do not run yet.
+4. Students are told only that other tests remain unpassed — not how many tests are still locked.
 
 ### Test Cases
 
@@ -251,6 +261,7 @@ See [Test Types](test-types.md) for type-specific fields.
   "evaluation": {
     "grading_mode": "weighted",
     "max_score": 100,
+    "require_previous_test_pass": true,
     "feedback_on_all_pass": "Excellent work — every automated check passed.",
     "test_cases": [
       {

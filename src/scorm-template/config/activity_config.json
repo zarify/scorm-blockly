@@ -75,6 +75,7 @@
   "evaluation": {
     "grading_mode": "pass_fail",
     "max_score": 100,
+    "require_previous_test_pass": true,
     "feedback_on_all_pass": "Excellent work — every automated check passed.",
     "test_cases": [
       {

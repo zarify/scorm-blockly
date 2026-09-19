@@ -172,14 +172,20 @@ async function handleCheck() {
   try {
     const code = generateCode();
     const workspace = getWorkspace();
-    const { results, totalScore, maxScore } = await runTests(
+    const {
+      results,
+      totalScore,
+      maxScore,
+      hasBlockedTests,
+    } = await runTests(
       config.evaluation.test_cases,
       code,
       workspace,
+      { requirePreviousTestPass: shouldRequirePreviousTestPass(config) },
     );
 
     setResultsModalTitle('Check results');
-    renderCheckOutput(results, totalScore, maxScore);
+    renderCheckOutput(results, totalScore, maxScore, hasBlockedTests);
     openResultsModal();
 
     const normalizedScore = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
@@ -243,7 +249,7 @@ function renderRunOutput(execution) {
   panel.innerHTML = buildExecutionOutputHtml(execution);
 }
 
-function renderCheckOutput(results, totalScore, maxScore) {
+function renderCheckOutput(results, totalScore, maxScore, hasBlockedTests = false) {
   const panel = document.getElementById('output-panel');
   if (!panel) return;
 
@@ -252,7 +258,7 @@ function renderCheckOutput(results, totalScore, maxScore) {
     return;
   }
 
-  panel.innerHTML = buildCheckResultsHtml(results, totalScore, maxScore);
+  panel.innerHTML = buildCheckResultsHtml(results, totalScore, maxScore, hasBlockedTests);
 }
 
 function setupResultsModal() {
@@ -377,9 +383,9 @@ function buildExecutionOutputHtml(execution) {
   return html;
 }
 
-function buildCheckResultsHtml(results, totalScore, maxScore) {
+function buildCheckResultsHtml(results, totalScore, maxScore, hasBlockedTests = false) {
   const percent = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
-  const allPassed = results.every((result) => result.passed);
+  const allPassed = !hasBlockedTests && results.every((result) => result.passed);
   const allPassSubtitle = allPassed ? String(config?.evaluation?.feedback_on_all_pass || '').trim() : '';
 
   let html = '<div class="results-section">';
@@ -401,6 +407,9 @@ function buildCheckResultsHtml(results, totalScore, maxScore) {
       html += renderStudentDetailHtml(result.student_detail);
     }
     html += '</li>';
+  }
+  if (hasBlockedTests) {
+    html += '<li class="result-fail formatted-text"><span class="result-icon">…</span>Other tests remain unpassed.</li>';
   }
   html += '</ul></div>';
   return html;
@@ -429,6 +438,10 @@ function areHintsEnabled(cfg) {
 
 function getLegacyHintDisplayMode(cfg) {
   return cfg.ui_settings?.hint_display_mode === 'checklist' ? 'checklist' : 'triggered';
+}
+
+function shouldRequirePreviousTestPass(cfg) {
+  return cfg?.evaluation?.require_previous_test_pass !== false;
 }
 
 function updateHintRequestButtonState({ hasManualHints = false, canRequest = false } = {}) {

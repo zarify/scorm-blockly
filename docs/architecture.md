@@ -75,7 +75,7 @@ src/activity-builder/js/
 
 **Key function:** `evaluateCondition(workspace, condition) → { passed: boolean, detail: string }`
 
-Handles 10 condition types (7 atomic, 3 composite). Used by both the hint system and block_structure tests. Stateless — pure function with no side effects.
+Handles 11 condition types (8 atomic, 3 composite). Used by both the hint system and block_structure tests. Stateless — pure function with no side effects.
 
 **Blockly dependency:** Receives the workspace as a parameter. Does not import Blockly directly — it calls `workspace.getAllBlocks()`, `block.getNextBlock()`, `block.getInput()`, and `block.getFieldValue()`.
 

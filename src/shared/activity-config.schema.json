@@ -152,6 +152,11 @@
           "type": "string",
           "description": "Optional subtitle shown in the results header when every automated test passes"
         },
+        "require_previous_test_pass": {
+          "type": "boolean",
+          "default": true,
+          "description": "If true, tests run in order and later tests are skipped until earlier tests pass"
+        },
         "test_cases": {
           "type": "array",
           "minItems": 1,
@@ -240,6 +245,17 @@
             "max": { "type": "integer", "minimum": 0 }
           },
           "required": ["type", "block_type"]
+        },
+        {
+          "properties": {
+            "type": { "const": "workspace_connectedness" },
+            "mode": {
+              "type": "string",
+              "enum": ["all_connected", "all_active"],
+              "default": "all_connected"
+            }
+          },
+          "required": ["type", "mode"]
         },
         {
           "properties": {

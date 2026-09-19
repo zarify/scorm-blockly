@@ -15,6 +15,7 @@ import {
   normalizeFieldValueCaseSensitivity,
   normalizeFieldValueMatchMode,
 } from './field-value-matching.js';
+import { normalizeWorkspaceConnectednessMode } from './workspace-connectedness.js';
 import {
   getVariableListAssertions,
   getPromptInputs,
@@ -143,6 +144,7 @@ function createBaseConfig(source) {
       grading_mode: asStringOr(evaluation.grading_mode, 'weighted'),
       max_score: asOptionalInteger(evaluation.max_score, 100) ?? 100,
       feedback_on_all_pass: asStringOr(evaluation.feedback_on_all_pass, ''),
+      require_previous_test_pass: evaluation.require_previous_test_pass !== false,
       test_cases: [],
     },
   };
@@ -368,6 +370,11 @@ function normalizeDraftCondition(condition) {
         min: asNonNegativeInteger(condition.min, 0),
         max: asNonNegativeInteger(condition.max, 10),
       };
+    case 'workspace_connectedness':
+      return {
+        type: condition.type,
+        mode: normalizeWorkspaceConnectednessMode(condition.mode),
+      };
     case 'all':
     case 'any':
     case 'none': {
@@ -478,6 +485,11 @@ function normalizePublishCondition(condition) {
         block_type: asStringOr(condition.block_type, ''),
         ...(condition.min !== undefined ? { min: asNonNegativeInteger(condition.min, 0) } : {}),
         ...(condition.max !== undefined ? { max: asNonNegativeInteger(condition.max, 10) } : {}),
+      };
+    case 'workspace_connectedness':
+      return {
+        type,
+        mode: normalizeWorkspaceConnectednessMode(condition.mode),
       };
     case 'all':
     case 'any':

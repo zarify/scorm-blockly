@@ -101,6 +101,7 @@ Conditions inspect the Blockly workspace and support:
 - `block_nested` — Block appears somewhere inside another block's input subtree, optionally with a scoped descendant field/value constraint
 - `block_field_value` — Block field has a specific value
 - `block_count` — Count of a block type within a range
+- `workspace_connectedness` — Require one connected program or reject loose disconnected value blocks
 - `all` / `any` / `none` — Composite logic (AND / OR / NOT)
 
 In the builder UI, `block_pattern` is now the preferred authoring path for connected/nested/value-matching structures; the older `block_connected`, `block_nested`, and `block_field_value` matchers remain supported mainly for backward compatibility.
