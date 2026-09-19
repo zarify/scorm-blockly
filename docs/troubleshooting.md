@@ -80,6 +80,19 @@ npm run dev
 
 Then reopen the builder and export a fresh package. The builder export now includes the real `app.bundle.js`.
 
+### `npm run dev` works, but the built static app behaves differently
+
+This usually points to a **bundle-only** issue rather than a server issue. Check these first:
+
+1. **Hard-refresh the built page** — Firefox can keep stale `dist/` assets cached longer than expected.
+2. **Rebuild before serving**:
+   ```bash
+   npm run build
+   ```
+3. **Serve the built directory over HTTP** rather than opening `index.html` directly from `file://`.
+
+The production build now keeps JavaScript symbol names stable while still minifying whitespace/syntax, which avoids Blockly procedure/toolbox regressions that can show up in Firefox-only static builds.
+
 ---
 
 ## SCORM / Moodle Issues
