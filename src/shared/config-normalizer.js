@@ -16,11 +16,15 @@ import {
   normalizeFieldValueMatchMode,
 } from './field-value-matching.js';
 import {
+  getVariableListAssertions,
   getPromptInputs,
   getStdoutOutputAssertion,
   getStdoutPromptAssertion,
   getTestPoints,
+  normalizeVariableType,
+  normalizeVariableValueAssertionEnabled,
   normalizeTestConfig,
+  shouldEnforcePromptInputCount,
 } from './test-config.js';
 
 /**
@@ -220,17 +224,25 @@ function normalizeDraftTestCase(testCase, index) {
 
   if (type === 'stdout_match') {
     normalized.prompt_inputs = getPromptInputs(testCase);
+    normalized.strict_prompt_inputs = shouldEnforcePromptInputCount(testCase);
     normalized.output_assertion = getStdoutOutputAssertion(testCase, { defaultEnabled: true });
     normalized.prompt_assertion = getStdoutPromptAssertion(testCase);
   } else if (type === 'block_structure') {
     normalized.conditions = normalizeDraftCondition(testCase.conditions);
   } else if (type === 'variable_state') {
     normalized.prompt_inputs = getPromptInputs(testCase);
+    normalized.strict_prompt_inputs = shouldEnforcePromptInputCount(testCase);
     normalized.variable_name = asStringOr(testCase.variable_name, '');
-    normalized.expected_value = testCase.expected_value ?? '';
+    normalized.expected_type = normalizeVariableType(testCase.expected_type);
+    normalized.value_assertion_enabled = normalizeVariableValueAssertionEnabled(testCase);
+    if (testCase.expected_value !== undefined) {
+      normalized.expected_value = testCase.expected_value;
+    }
     normalized.comparison = VALID_VARIABLE_COMPARISONS.includes(testCase.comparison)
       ? testCase.comparison
       : 'equals';
+    normalized.show_coerced_value_hint = Boolean(testCase.show_coerced_value_hint);
+    normalized.list_assertions = getVariableListAssertions(testCase);
   }
 
   return normalized;
@@ -248,18 +260,36 @@ function normalizePublishTestCase(testCase) {
 
   if (type === 'stdout_match') {
     normalized.prompt_inputs = getPromptInputs(testCase);
+    if (testCase.strict_prompt_inputs !== undefined) {
+      normalized.strict_prompt_inputs = shouldEnforcePromptInputCount(testCase);
+    }
     normalized.output_assertion = getStdoutOutputAssertion(testCase);
     normalized.prompt_assertion = getStdoutPromptAssertion(testCase);
   } else if (type === 'block_structure') {
     normalized.conditions = normalizePublishCondition(testCase.conditions);
   } else if (type === 'variable_state') {
     normalized.prompt_inputs = getPromptInputs(testCase);
+    if (testCase.strict_prompt_inputs !== undefined) {
+      normalized.strict_prompt_inputs = shouldEnforcePromptInputCount(testCase);
+    }
     normalized.variable_name = asStringOr(testCase.variable_name, '');
+    if (testCase.expected_type !== undefined) {
+      normalized.expected_type = normalizeVariableType(testCase.expected_type);
+    }
+    if (testCase.value_assertion_enabled !== undefined || testCase.expected_value !== undefined) {
+      normalized.value_assertion_enabled = normalizeVariableValueAssertionEnabled(testCase);
+    }
     if (testCase.expected_value !== undefined) {
       normalized.expected_value = testCase.expected_value;
     }
     if (testCase.comparison !== undefined) {
       normalized.comparison = asStringOr(testCase.comparison, '');
+    }
+    if (testCase.show_coerced_value_hint !== undefined) {
+      normalized.show_coerced_value_hint = Boolean(testCase.show_coerced_value_hint);
+    }
+    if (testCase.list_assertions !== undefined) {
+      normalized.list_assertions = getVariableListAssertions(testCase);
     }
   }
 

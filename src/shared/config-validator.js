@@ -1,10 +1,17 @@
 import * as Blockly from 'blockly';
 import {
+  getVariableListAssertions,
   getStdoutOutputAssertion,
   getStdoutPromptAssertion,
   getTestPoints,
+  hasEnabledListAssertion,
   hasEnabledStdoutAssertion,
+  normalizeVariableType,
+  VALID_LIST_ITEM_TYPE_MODES,
+  VALID_LIST_LENGTH_COMPARISONS,
+  VALID_LIST_VALUE_MATCH_MODES,
   VALID_RUNTIME_TEXT_MATCH_MODES,
+  VALID_VARIABLE_TYPES,
 } from './test-config.js';
 import { BLOCK_PATTERN_TYPE, registerBlockPatternBlocks } from './block-pattern.js';
 import {
@@ -18,6 +25,10 @@ import {
 export const VALID_TEST_TYPES = ['stdout_match', 'block_structure', 'variable_state'];
 export const VALID_STDOUT_MATCH_MODES = VALID_RUNTIME_TEXT_MATCH_MODES;
 export const VALID_VARIABLE_COMPARISONS = ['equals', 'gt', 'lt', 'gte', 'lte', 'contains', 'type'];
+export const VALID_VARIABLE_TYPES_FOR_TESTS = VALID_VARIABLE_TYPES;
+export const VALID_LIST_LENGTH_COMPARISONS_FOR_TESTS = VALID_LIST_LENGTH_COMPARISONS;
+export const VALID_LIST_VALUE_MATCH_MODES_FOR_TESTS = VALID_LIST_VALUE_MATCH_MODES;
+export const VALID_LIST_ITEM_TYPE_MODES_FOR_TESTS = VALID_LIST_ITEM_TYPE_MODES;
 export const VALID_HINT_DISPLAY_MODES = ['triggered', 'checklist'];
 export const VALID_FIELD_VALUE_MATCH_MODES = SHARED_VALID_FIELD_VALUE_MATCH_MODES;
 export const VALID_CONDITION_TYPES = [
@@ -250,6 +261,9 @@ function validateTestCase(tc, index, errors) {
       errors.push({ path: `${prefix}.prompt_inputs`, message: 'Must be an array of strings' });
     }
   }
+  if (tc.strict_prompt_inputs !== undefined && typeof tc.strict_prompt_inputs !== 'boolean') {
+    errors.push({ path: `${prefix}.strict_prompt_inputs`, message: 'Must be a boolean' });
+  }
 
   if (tc.feedback_on_pass !== undefined && typeof tc.feedback_on_pass !== 'string') {
     errors.push({ path: `${prefix}.feedback_on_pass`, message: 'Must be a string' });
@@ -296,11 +310,56 @@ function validateTestCase(tc, index, errors) {
     }
   } else if (tc.type === 'variable_state') {
     validateRequiredString(tc, 'variable_name', errors, prefix);
-    if (tc.expected_value === undefined) {
-      errors.push({ path: `${prefix}.expected_value`, message: 'Required for variable_state test type' });
+    if (
+      tc.expected_type !== undefined
+      && !VALID_VARIABLE_TYPES_FOR_TESTS.includes(String(tc.expected_type))
+    ) {
+      errors.push({
+        path: `${prefix}.expected_type`,
+        message: `Must be one of: ${VALID_VARIABLE_TYPES_FOR_TESTS.join(', ')}`,
+      });
+    }
+    if (
+      tc.value_assertion_enabled !== undefined
+      && typeof tc.value_assertion_enabled !== 'boolean'
+    ) {
+      errors.push({
+        path: `${prefix}.value_assertion_enabled`,
+        message: 'Must be a boolean',
+      });
+    }
+    if (
+      tc.show_coerced_value_hint !== undefined
+      && typeof tc.show_coerced_value_hint !== 'boolean'
+    ) {
+      errors.push({
+        path: `${prefix}.show_coerced_value_hint`,
+        message: 'Must be a boolean',
+      });
     }
     if (tc.comparison && !VALID_VARIABLE_COMPARISONS.includes(tc.comparison)) {
       errors.push({ path: `${prefix}.comparison`, message: 'Invalid comparison operator' });
+    }
+
+    validateVariableListAssertions(tc.list_assertions, `${prefix}.list_assertions`, errors);
+
+    const expectsListChecks = hasEnabledListAssertion(tc);
+    const valueAssertionEnabled = tc.value_assertion_enabled === undefined
+      ? tc.expected_value !== undefined
+      : Boolean(tc.value_assertion_enabled);
+    const typeAssertionEnabled = normalizeVariableType(tc.expected_type) !== 'any';
+
+    if (valueAssertionEnabled && tc.expected_value === undefined) {
+      errors.push({
+        path: `${prefix}.expected_value`,
+        message: 'Required when value_assertion_enabled is true',
+      });
+    }
+    if (!valueAssertionEnabled && !typeAssertionEnabled && !expectsListChecks) {
+      errors.push({
+        path: prefix,
+        message: 'variable_state must enable a value assertion, a type assertion, or a list assertion',
+      });
     }
   }
 }
@@ -328,6 +387,9 @@ function validateRuntimeTextAssertion(assertion, path, errors) {
       message: 'Must be exact, contains, or regex',
     });
   }
+  if (assertion.match_any_item !== undefined && typeof assertion.match_any_item !== 'boolean') {
+    errors.push({ path: `${path}.match_any_item`, message: 'Must be a boolean' });
+  }
   if (assertion.show_expected !== undefined && typeof assertion.show_expected !== 'boolean') {
     errors.push({ path: `${path}.show_expected`, message: 'Must be a boolean' });
   }
@@ -345,6 +407,112 @@ function validateRuntimeTextAssertion(assertion, path, errors) {
     && typeof assertion.failure_message !== 'string'
   ) {
     errors.push({ path: `${path}.failure_message`, message: 'Must be a string' });
+  }
+}
+
+function validateVariableListAssertions(assertions, path, errors) {
+  if (assertions === undefined) return;
+  if (!assertions || typeof assertions !== 'object' || Array.isArray(assertions)) {
+    errors.push({ path, message: 'Must be an object' });
+    return;
+  }
+
+  if (assertions.length_enabled !== undefined && typeof assertions.length_enabled !== 'boolean') {
+    errors.push({ path: `${path}.length_enabled`, message: 'Must be a boolean' });
+  }
+  if (assertions.length_value !== undefined && (!Number.isInteger(assertions.length_value) || assertions.length_value < 0)) {
+    errors.push({ path: `${path}.length_value`, message: 'Must be a non-negative integer' });
+  }
+  if (
+    assertions.length_comparison !== undefined
+    && !VALID_LIST_LENGTH_COMPARISONS_FOR_TESTS.includes(assertions.length_comparison)
+  ) {
+    errors.push({
+      path: `${path}.length_comparison`,
+      message: `Must be one of: ${VALID_LIST_LENGTH_COMPARISONS_FOR_TESTS.join(', ')}`,
+    });
+  }
+  if (assertions.values_enabled !== undefined && typeof assertions.values_enabled !== 'boolean') {
+    errors.push({ path: `${path}.values_enabled`, message: 'Must be a boolean' });
+  }
+  if (
+    assertions.values_match_mode !== undefined
+    && !VALID_LIST_VALUE_MATCH_MODES_FOR_TESTS.includes(assertions.values_match_mode)
+  ) {
+    errors.push({
+      path: `${path}.values_match_mode`,
+      message: `Must be one of: ${VALID_LIST_VALUE_MATCH_MODES_FOR_TESTS.join(', ')}`,
+    });
+  }
+  if (assertions.expected_values !== undefined && !Array.isArray(assertions.expected_values)) {
+    errors.push({ path: `${path}.expected_values`, message: 'Must be an array' });
+  }
+  if (assertions.item_types_enabled !== undefined && typeof assertions.item_types_enabled !== 'boolean') {
+    errors.push({ path: `${path}.item_types_enabled`, message: 'Must be a boolean' });
+  }
+  if (
+    assertions.item_type_mode !== undefined
+    && !VALID_LIST_ITEM_TYPE_MODES_FOR_TESTS.includes(assertions.item_type_mode)
+  ) {
+    errors.push({
+      path: `${path}.item_type_mode`,
+      message: `Must be one of: ${VALID_LIST_ITEM_TYPE_MODES_FOR_TESTS.join(', ')}`,
+    });
+  }
+  if (assertions.expected_item_types !== undefined) {
+    if (!Array.isArray(assertions.expected_item_types)) {
+      errors.push({ path: `${path}.expected_item_types`, message: 'Must be an array' });
+    } else if (assertions.expected_item_types.some((type) => !VALID_VARIABLE_TYPES_FOR_TESTS.includes(String(type)) || String(type) === 'any')) {
+      errors.push({
+        path: `${path}.expected_item_types`,
+        message: `Entries must be one of: ${VALID_VARIABLE_TYPES_FOR_TESTS.filter((type) => type !== 'any').join(', ')}`,
+      });
+    }
+  }
+  if (assertions.index_checks !== undefined) {
+    if (!Array.isArray(assertions.index_checks)) {
+      errors.push({ path: `${path}.index_checks`, message: 'Must be an array' });
+    } else {
+      assertions.index_checks.forEach((check, index) => {
+        const checkPath = `${path}.index_checks[${index}]`;
+        if (!check || typeof check !== 'object' || Array.isArray(check)) {
+          errors.push({ path: checkPath, message: 'Must be an object' });
+          return;
+        }
+        if (!Number.isInteger(check.index) || check.index < 0) {
+          errors.push({ path: `${checkPath}.index`, message: 'Must be a non-negative integer' });
+        }
+        if (
+          check.expected_type !== undefined
+          && !VALID_VARIABLE_TYPES_FOR_TESTS.includes(String(check.expected_type))
+        ) {
+          errors.push({
+            path: `${checkPath}.expected_type`,
+            message: `Must be one of: ${VALID_VARIABLE_TYPES_FOR_TESTS.join(', ')}`,
+          });
+        }
+        if (check.expected_value === undefined && normalizeVariableType(check.expected_type) === 'any') {
+          errors.push({
+            path: checkPath,
+            message: 'Each index check must define expected_value, expected_type, or both',
+          });
+        }
+      });
+    }
+  }
+
+  const normalized = getVariableListAssertions({ list_assertions: assertions });
+  if (normalized.values_enabled && normalized.expected_values.length === 0) {
+    errors.push({
+      path: `${path}.expected_values`,
+      message: 'Provide at least one expected list value when values_enabled is true',
+    });
+  }
+  if (normalized.item_types_enabled && normalized.expected_item_types.length === 0) {
+    errors.push({
+      path: `${path}.expected_item_types`,
+      message: 'Provide at least one expected item type when item_types_enabled is true',
+    });
   }
 }
 

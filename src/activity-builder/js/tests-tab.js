@@ -20,20 +20,25 @@ import { renderPatternBuilder } from './pattern-builder.js';
 import {
   formatPromptInputs,
   getPromptInputs,
+  getVariableListAssertions,
   getStdoutOutputAssertion,
   getStdoutPromptAssertion,
   getTestPoints,
+  normalizeVariableType,
+  normalizeVariableValueAssertionEnabled,
   parsePromptInputs,
   setTestPoints,
+  VALID_VARIABLE_TYPES,
 } from '../../shared/test-config.js';
 
 let selectedTestIndex = -1;
 let suppressSelectedTestEditorSync = false;
+let draggedTestIndex = null;
 
 const TEST_TYPES = [
   { value: 'stdout_match', label: 'Output/prompt text check' },
   { value: 'block_structure', label: 'Block structure check' },
-  { value: 'variable_state', label: 'Variable value check' },
+  { value: 'variable_state', label: 'Variable/list state check' },
 ];
 
 const MATCH_MODES = [
@@ -50,6 +55,38 @@ const COMPARISONS = [
   { value: 'lte', label: 'Less or equal (<=)' },
   { value: 'contains', label: 'Contains (string)' },
   { value: 'type', label: 'Type check (typeof)' },
+];
+
+const VARIABLE_TYPES = VALID_VARIABLE_TYPES.map((value) => ({
+  value,
+  label: ({
+    any: 'Any / don\'t check type',
+    int: 'Integer',
+    float: 'Float',
+    string: 'String',
+    list: 'List',
+  })[value] || value,
+}));
+
+const LIST_LENGTH_COMPARISONS = [
+  { value: 'equals', label: 'Length equals' },
+  { value: 'gt', label: 'Length greater than' },
+  { value: 'lt', label: 'Length less than' },
+  { value: 'gte', label: 'Length greater or equal' },
+  { value: 'lte', label: 'Length less or equal' },
+];
+
+const LIST_VALUE_MATCH_MODES = [
+  { value: 'exact_order', label: 'Exact values in exact order' },
+  { value: 'same_values_any_order', label: 'Exact values in any order' },
+  { value: 'expected_subset_of_actual', label: 'Expected values are a subset of the student list' },
+  { value: 'expected_superset_of_actual', label: 'Expected values are a superset of the student list' },
+];
+
+const LIST_ITEM_TYPE_MODES = [
+  { value: 'all', label: 'All items match one of these types' },
+  { value: 'some', label: 'At least one item matches one of these types' },
+  { value: 'none', label: 'No items match any of these types' },
 ];
 
 export function initTestsTab() {
@@ -70,6 +107,7 @@ function addTest() {
     id,
     type: 'stdout_match',
     prompt_inputs: [],
+    strict_prompt_inputs: true,
     output_assertion: {
       enabled: true,
       expected: '',
@@ -117,7 +155,7 @@ function renderTestList() {
   const tests = getConfig().evaluation.test_cases;
 
   container.innerHTML = tests.map((tc, i) => `
-    <div class="list-item ${i === selectedTestIndex ? 'selected' : ''}" data-index="${i}">
+    <div class="list-item test-list-item ${i === selectedTestIndex ? 'selected' : ''}" data-index="${i}" draggable="true">
       <span class="list-item-title">
         <strong>${tc.type}</strong> — ${tc.id} (${formatPointsLabel(getTestPoints(tc))})
       </span>
@@ -134,11 +172,99 @@ function renderTestList() {
     });
   });
 
+  container.querySelectorAll('.test-list-item').forEach((el) => {
+    el.addEventListener('dragstart', (e) => {
+      draggedTestIndex = parseInt(el.dataset.index, 10);
+      el.classList.add('dragging');
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', String(draggedTestIndex));
+    });
+    el.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      if (draggedTestIndex === null) return;
+      const { before } = getDropPlacement(el, e.clientY);
+      el.classList.toggle('drag-over-before', before);
+      el.classList.toggle('drag-over-after', !before);
+    });
+    el.addEventListener('dragleave', () => {
+      clearDropIndicator(el);
+    });
+    el.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (draggedTestIndex === null) return;
+      const targetIndex = parseInt(el.dataset.index, 10);
+      const { before } = getDropPlacement(el, e.clientY);
+      moveTest(draggedTestIndex, targetIndex, before ? 'before' : 'after');
+      draggedTestIndex = null;
+    });
+    el.addEventListener('dragend', () => {
+      draggedTestIndex = null;
+      clearAllDropIndicators(container);
+      el.classList.remove('dragging');
+    });
+  });
+
   container.querySelectorAll('.list-item-remove').forEach((el) => {
     el.addEventListener('click', (e) => {
       e.stopPropagation();
       removeTest(parseInt(el.dataset.index));
     });
+  });
+}
+
+function moveTest(fromIndex, targetIndex, position) {
+  const tests = getConfig().evaluation.test_cases;
+  if (
+    !Array.isArray(tests)
+    || fromIndex < 0
+    || targetIndex < 0
+    || fromIndex >= tests.length
+    || targetIndex >= tests.length
+  ) {
+    return;
+  }
+  if (fromIndex === targetIndex) {
+    renderTestList();
+    return;
+  }
+
+  const [moved] = tests.splice(fromIndex, 1);
+  let insertIndex = targetIndex;
+  if (fromIndex < targetIndex) {
+    insertIndex -= 1;
+  }
+  if (position === 'after') {
+    insertIndex += 1;
+  }
+  insertIndex = Math.max(0, Math.min(insertIndex, tests.length));
+  tests.splice(insertIndex, 0, moved);
+
+  if (selectedTestIndex === fromIndex) {
+    selectedTestIndex = insertIndex;
+  } else if (fromIndex < selectedTestIndex && insertIndex >= selectedTestIndex) {
+    selectedTestIndex -= 1;
+  } else if (fromIndex > selectedTestIndex && insertIndex <= selectedTestIndex) {
+    selectedTestIndex += 1;
+  }
+
+  emitLocalTestChange();
+  renderTestList();
+  renderTestEditor();
+}
+
+function getDropPlacement(element, pointerY) {
+  const rect = element.getBoundingClientRect();
+  return { before: pointerY < rect.top + rect.height / 2 };
+}
+
+function clearDropIndicator(element) {
+  element.classList.remove('drag-over-before', 'drag-over-after');
+}
+
+function clearAllDropIndicators(container) {
+  container.querySelectorAll('.test-list-item').forEach((element) => {
+    clearDropIndicator(element);
+    element.classList.remove('dragging');
   });
 }
 
@@ -216,6 +342,7 @@ function renderTestEditor() {
     };
     if (v === 'stdout_match') {
       newTc.prompt_inputs = getPromptInputs(tc);
+      newTc.strict_prompt_inputs = true;
       newTc.output_assertion = {
         enabled: true,
         expected: '',
@@ -238,9 +365,25 @@ function renderTestEditor() {
       newTc.conditions = { type: 'workspace_empty' };
     } else if (v === 'variable_state') {
       newTc.prompt_inputs = getPromptInputs(tc);
+      newTc.strict_prompt_inputs = true;
       newTc.variable_name = '';
+      newTc.expected_type = 'any';
+      newTc.value_assertion_enabled = true;
       newTc.expected_value = '';
       newTc.comparison = 'equals';
+      newTc.show_coerced_value_hint = false;
+      newTc.list_assertions = {
+        length_enabled: false,
+        length_value: 0,
+        length_comparison: 'equals',
+        values_enabled: false,
+        values_match_mode: 'exact_order',
+        expected_values: [],
+        item_types_enabled: false,
+        item_type_mode: 'all',
+        expected_item_types: [],
+        index_checks: [],
+      };
     }
     Object.assign(tc, newTc);
     // Clean up old fields
@@ -277,7 +420,14 @@ function renderTestTypeFields(tc) {
         <div class="form-group">
           <label>Prompt inputs</label>
           <textarea id="test-prompt-inputs" rows="3" placeholder="One prompt() response per line">${escapeHtml(formatPromptInputs(getPromptInputs(tc)))}</textarea>
-          <small>Returned to <code>window.prompt()</code> in order. If the program asks for more or fewer inputs than listed here, the test fails explicitly, even for prompt-only checks.</small>
+          <small>Returned to <code>window.prompt()</code> in order. Use the option below to decide whether extra or missing prompt() calls should fail the test.</small>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="test-strict-prompt-inputs" ${tc.strict_prompt_inputs !== false ? 'checked' : ''}>
+            Fail if the number of prompt inputs used does not match exactly
+          </label>
+          <small>Turn this off when you want to test prompt/output text in isolation without depending on the student program's full prompt structure.</small>
         </div>
         ${renderRuntimeTextAssertionEditor({
           prefix: 'test-output',
@@ -296,6 +446,7 @@ function renderTestTypeFields(tc) {
           expectedLabel: 'Expected prompt text',
           expectedPlaceholder: 'One prompt message per line',
           helpText: 'Matches the text passed to <code>window.prompt()</code> in order, joined with newlines. A single prompt like <code>prompt("Knock knock")</code> is entered exactly as <code>Knock knock</code>.',
+          matchAnyItemLabel: 'Match any single prompt instead of the combined prompt transcript',
           showExpectedLabel: 'Show expected prompt text when this check fails',
           showActualLabel: 'Show actual prompt text when this check fails',
         })}
@@ -314,27 +465,109 @@ function renderTestTypeFields(tc) {
       break;
 
     case 'variable_state':
+      tc.expected_type = normalizeVariableType(tc.expected_type);
+      tc.value_assertion_enabled = normalizeVariableValueAssertionEnabled(tc);
+      tc.show_coerced_value_hint = Boolean(tc.show_coerced_value_hint);
+      tc.list_assertions = getVariableListAssertions(tc);
+
       html = `
         <div class="form-group">
           <label>Prompt inputs</label>
           <textarea id="test-prompt-inputs" rows="3" placeholder="One prompt() response per line">${escapeHtml(formatPromptInputs(getPromptInputs(tc)))}</textarea>
-          <small>Returned to <code>window.prompt()</code> in order before variable assertions run. Extra or missing inputs fail the test.</small>
+          <small>Returned to <code>window.prompt()</code> in order before variable assertions run. Use the option below to decide whether extra or missing prompt() calls should fail the test.</small>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="test-strict-prompt-inputs" ${tc.strict_prompt_inputs !== false ? 'checked' : ''}>
+            Fail if the number of prompt inputs used does not match exactly
+          </label>
+          <small>Turn this off when you want to inspect later prompts or values without depending on the full prompt count.</small>
         </div>
         <div class="form-group">
           <label>Variable name</label>
           <input type="text" id="test-var-name" value="${escapeAttr(tc.variable_name || '')}" placeholder="e.g. count">
         </div>
         <div class="form-group">
-          <label>Expected value</label>
-          <input type="text" id="test-var-expected" value="${escapeAttr(String(tc.expected_value ?? ''))}" placeholder="e.g. 3">
-          <small>Numbers are compared as numbers, strings as strings</small>
-        </div>
-        <div class="form-group">
-          <label>Comparison</label>
-          <select id="test-var-comparison">
-            ${COMPARISONS.map((c) => `<option value="${c.value}" ${(tc.comparison || 'equals') === c.value ? 'selected' : ''}>${c.label}</option>`).join('')}
+          <label>Expected type</label>
+          <select id="test-var-type">
+            ${VARIABLE_TYPES.map((option) => `<option value="${option.value}" ${tc.expected_type === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
           </select>
+          <small>Use this for explicit type checks such as integer vs string, float, or list.</small>
         </div>
+        ${tc.expected_type !== 'list' ? `
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="test-var-value-enabled" ${tc.value_assertion_enabled ? 'checked' : ''}>
+            Verify the variable value
+          </label>
+        </div>
+        <fieldset id="test-var-value-fields" ${tc.value_assertion_enabled ? '' : 'disabled'} style="border:1px solid #ddd;border-radius:6px;padding:12px;margin:0 0 12px">
+          <legend style="padding:0 6px;font-weight:600">Scalar value assertion</legend>
+          <div class="form-group">
+            <label>Expected value</label>
+            <input type="text" id="test-var-expected" value="${escapeAttr(formatScalarExpectedValue(tc.expected_value))}" placeholder="${escapeAttr(getScalarValuePlaceholder(tc.expected_type, tc.comparison))}">
+            <small>${getScalarValueHelpText(tc.expected_type, tc.comparison)}</small>
+          </div>
+          <div class="form-group">
+            <label>Comparison</label>
+            <select id="test-var-comparison">
+              ${COMPARISONS.map((c) => `<option value="${c.value}" ${(tc.comparison || 'equals') === c.value ? 'selected' : ''}>${c.label}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="test-var-coercion-hint" ${tc.show_coerced_value_hint ? 'checked' : ''}>
+              Show a hint when the coerced value matches but the type is wrong
+            </label>
+          </div>
+        </fieldset>
+        ` : `
+        <div class="form-group">
+          <small>List variables can be checked by length, list contents, item types, and specific index checks. Leave every list assertion disabled if you only want to assert that the variable is a list.</small>
+        </div>
+        <fieldset style="border:1px solid #ddd;border-radius:6px;padding:12px;margin:0 0 12px">
+          <legend style="padding:0 6px;font-weight:600">List assertions</legend>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="test-list-length-enabled" ${tc.list_assertions.length_enabled ? 'checked' : ''}>
+              Verify list length
+            </label>
+            <div style="display:flex;gap:8px;margin-top:8px">
+              <select id="test-list-length-comparison" ${tc.list_assertions.length_enabled ? '' : 'disabled'} style="flex:1">
+                ${LIST_LENGTH_COMPARISONS.map((option) => `<option value="${option.value}" ${tc.list_assertions.length_comparison === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
+              </select>
+              <input type="number" id="test-list-length-value" min="0" value="${tc.list_assertions.length_value}" ${tc.list_assertions.length_enabled ? '' : 'disabled'} style="flex:1">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="test-list-values-enabled" ${tc.list_assertions.values_enabled ? 'checked' : ''}>
+              Verify list values
+            </label>
+            <select id="test-list-values-mode" ${tc.list_assertions.values_enabled ? '' : 'disabled'} style="margin-top:8px">
+              ${LIST_VALUE_MATCH_MODES.map((option) => `<option value="${option.value}" ${tc.list_assertions.values_match_mode === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
+            </select>
+            <textarea id="test-list-values" rows="4" placeholder='One expected list item per line. Use JSON for numbers, strings, booleans, nested lists, or objects.' ${tc.list_assertions.values_enabled ? '' : 'disabled'}>${escapeHtml(formatStructuredValueList(tc.list_assertions.expected_values))}</textarea>
+            <small>Examples: <code>1</code>, <code>"cow"</code>, <code>[1,2]</code>. Plain unquoted text is treated as a string.</small>
+          </div>
+          <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="test-list-item-types-enabled" ${tc.list_assertions.item_types_enabled ? 'checked' : ''}>
+              Verify item types
+            </label>
+            <select id="test-list-item-types-mode" ${tc.list_assertions.item_types_enabled ? '' : 'disabled'} style="margin-top:8px">
+              ${LIST_ITEM_TYPE_MODES.map((option) => `<option value="${option.value}" ${tc.list_assertions.item_type_mode === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
+            </select>
+            <input type="text" id="test-list-item-types" value="${escapeAttr(formatTypeList(tc.list_assertions.expected_item_types))}" placeholder="int, string" ${tc.list_assertions.item_types_enabled ? '' : 'disabled'}>
+            <small>Allowed item types: int, float, string, list.</small>
+          </div>
+          <div class="form-group">
+            <label>Specific index checks</label>
+            <textarea id="test-list-index-checks" rows="4" placeholder='One JSON object per line, e.g. {"index":0,"expected_value":"cow"} or {"index":1,"expected_type":"int"}'>${escapeHtml(formatIndexChecks(tc.list_assertions.index_checks))}</textarea>
+            <small>Use this to assert values or types at specific list indexes. Leave blank to skip index-based checks.</small>
+          </div>
+        </fieldset>
+        `}
       `;
       break;
   }
@@ -345,6 +578,7 @@ function renderTestTypeFields(tc) {
   switch (tc.type) {
     case 'stdout_match':
       bindField('test-prompt-inputs', (v) => { tc.prompt_inputs = parsePromptInputs(v); });
+      bindCheckedField('test-strict-prompt-inputs', (checked) => { tc.strict_prompt_inputs = checked; });
       bindRuntimeTextAssertionFields('test-output', tc.output_assertion);
       bindRuntimeTextAssertionFields('test-prompt', tc.prompt_assertion);
       break;
@@ -366,13 +600,61 @@ function renderTestTypeFields(tc) {
 
     case 'variable_state':
       bindField('test-prompt-inputs', (v) => { tc.prompt_inputs = parsePromptInputs(v); });
+      bindCheckedField('test-strict-prompt-inputs', (checked) => { tc.strict_prompt_inputs = checked; });
       bindField('test-var-name', (v) => { tc.variable_name = v; });
-      bindField('test-var-expected', (v) => {
-        // Try to parse as number
-        const num = Number(v);
-        tc.expected_value = isNaN(num) ? v : num;
+      bindField('test-var-type', (v) => {
+        tc.expected_type = v;
+        if (v === 'list') {
+          tc.value_assertion_enabled = false;
+        }
+        renderTestEditor();
       });
-      bindField('test-var-comparison', (v) => { tc.comparison = v; });
+      if (tc.expected_type !== 'list') {
+        bindCheckedField('test-var-value-enabled', (checked) => {
+          tc.value_assertion_enabled = checked;
+          const fieldset = document.getElementById('test-var-value-fields');
+          if (fieldset) fieldset.disabled = !checked;
+        });
+        bindField('test-var-expected', (v) => {
+          tc.expected_value = parseScalarExpectedValue(v, tc.expected_type, tc.comparison);
+        });
+        bindField('test-var-comparison', (v) => {
+          tc.comparison = v;
+          renderTestEditor();
+        });
+        bindCheckedField('test-var-coercion-hint', (checked) => {
+          tc.show_coerced_value_hint = checked;
+        });
+      } else {
+        bindCheckedField('test-list-length-enabled', (checked) => {
+          tc.list_assertions.length_enabled = checked;
+          toggleDisabledState('test-list-length-comparison', !checked);
+          toggleDisabledState('test-list-length-value', !checked);
+        });
+        bindField('test-list-length-comparison', (v) => { tc.list_assertions.length_comparison = v; });
+        bindField('test-list-length-value', (v) => { tc.list_assertions.length_value = Math.max(0, parseInt(v, 10) || 0); });
+        bindCheckedField('test-list-values-enabled', (checked) => {
+          tc.list_assertions.values_enabled = checked;
+          toggleDisabledState('test-list-values-mode', !checked);
+          toggleDisabledState('test-list-values', !checked);
+        });
+        bindField('test-list-values-mode', (v) => { tc.list_assertions.values_match_mode = v; });
+        bindParsedField('test-list-values', parseStructuredValueList, (values) => {
+          tc.list_assertions.expected_values = values;
+        });
+        bindCheckedField('test-list-item-types-enabled', (checked) => {
+          tc.list_assertions.item_types_enabled = checked;
+          toggleDisabledState('test-list-item-types-mode', !checked);
+          toggleDisabledState('test-list-item-types', !checked);
+        });
+        bindField('test-list-item-types-mode', (v) => { tc.list_assertions.item_type_mode = v; });
+        bindParsedField('test-list-item-types', parseTypeList, (types) => {
+          tc.list_assertions.expected_item_types = types;
+        });
+        bindParsedField('test-list-index-checks', parseIndexChecks, (checks) => {
+          tc.list_assertions.index_checks = checks;
+        });
+      }
       break;
   }
 }
@@ -605,6 +887,7 @@ function renderRuntimeTextAssertionEditor({
   expectedLabel,
   expectedPlaceholder,
   helpText,
+  matchAnyItemLabel,
   showExpectedLabel,
   showActualLabel,
 }) {
@@ -628,6 +911,14 @@ function renderRuntimeTextAssertionEditor({
           ${MATCH_MODES.map((mode) => `<option value="${mode.value}" ${assertion.match_mode === mode.value ? 'selected' : ''}>${mode.label}</option>`).join('')}
         </select>
       </div>
+      ${matchAnyItemLabel ? `
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="${prefix}-match-any-item" ${assertion.match_any_item ? 'checked' : ''}>
+          ${matchAnyItemLabel}
+        </label>
+      </div>
+      ` : ''}
       <div class="form-group">
         <label class="checkbox-label">
           <input type="checkbox" id="${prefix}-show-expected" ${assertion.show_expected ? 'checked' : ''}>
@@ -658,6 +949,7 @@ function bindRuntimeTextAssertionFields(prefix, assertion) {
   });
   bindField(`${prefix}-expected`, (value) => { assertion.expected = value; });
   bindField(`${prefix}-match-mode`, (value) => { assertion.match_mode = value; });
+  bindCheckedField(`${prefix}-match-any-item`, (checked) => { assertion.match_any_item = checked; });
   bindCheckedField(`${prefix}-show-expected`, (checked) => { assertion.show_expected = checked; });
   bindCheckedField(`${prefix}-show-actual`, (checked) => { assertion.show_actual = checked; });
   bindField(`${prefix}-success-message`, (value) => { assertion.success_message = value; });
@@ -697,6 +989,21 @@ function bindField(id, setter) {
   });
 }
 
+function bindParsedField(id, parser, setter) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('input', (e) => {
+    try {
+      const parsed = parser(e.target.value);
+      e.target.setCustomValidity('');
+      setter(parsed);
+      emitLocalTestChange();
+    } catch (err) {
+      e.target.setCustomValidity(err instanceof Error ? err.message : String(err));
+    }
+  });
+}
+
 function bindCheckedField(id, setter) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -704,6 +1011,11 @@ function bindCheckedField(id, setter) {
     setter(e.target.checked);
     emitLocalTestChange();
   });
+}
+
+function toggleDisabledState(id, disabled) {
+  const el = document.getElementById(id);
+  if (el) el.disabled = disabled;
 }
 
 function emitLocalTestChange() {
@@ -723,6 +1035,106 @@ function escapeHtml(str) {
 
 function escapeAttr(str) {
   return String(str).replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+function formatScalarExpectedValue(value) {
+  if (value === undefined || value === null) return '';
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+function getScalarValuePlaceholder(expectedType, comparison) {
+  if (comparison === 'type') return 'e.g. number';
+  if (expectedType === 'string') return 'e.g. cow';
+  if (expectedType === 'float') return 'e.g. 3.14';
+  if (expectedType === 'int') return 'e.g. 3';
+  return 'e.g. 3 or cow';
+}
+
+function getScalarValueHelpText(expectedType, comparison) {
+  if (comparison === 'type') {
+    return 'Legacy JavaScript typeof check. Use the Expected type dropdown for int/float/string/list checks.';
+  }
+  if (expectedType === 'string') {
+    return 'Entered text is compared as a string.';
+  }
+  if (expectedType === 'int' || expectedType === 'float') {
+    return 'Entered text is parsed as a number for numeric comparisons.';
+  }
+  return 'Numbers are parsed as numbers when possible. Everything else is treated as text.';
+}
+
+function parseScalarExpectedValue(value, expectedType, comparison) {
+  if (comparison === 'type') return value;
+  if (expectedType === 'string') return value;
+  if (expectedType === 'int' || expectedType === 'float') {
+    const num = Number(value);
+    return Number.isNaN(num) ? value : num;
+  }
+  const num = Number(value);
+  return Number.isNaN(num) ? value : num;
+}
+
+function formatStructuredValueList(values) {
+  if (!Array.isArray(values) || values.length === 0) return '';
+  return values.map((value) => formatStructuredValue(value)).join('\n');
+}
+
+function parseStructuredValueList(text) {
+  if (text.trim() === '') return [];
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    .map(parseStructuredValueLine);
+}
+
+function formatTypeList(types) {
+  return Array.isArray(types) ? types.join(', ') : '';
+}
+
+function parseTypeList(text) {
+  if (text.trim() === '') return [];
+  return text
+    .split(/[\n,]/)
+    .map((part) => part.trim())
+    .filter((part) => part !== '' && part !== 'any');
+}
+
+function formatIndexChecks(checks) {
+  if (!Array.isArray(checks) || checks.length === 0) return '';
+  return checks.map((check) => JSON.stringify(check)).join('\n');
+}
+
+function parseIndexChecks(text) {
+  if (text.trim() === '') return [];
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line !== '')
+    .map((line) => {
+      let parsed;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        throw new Error('Each index check line must be valid JSON.');
+      }
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('Each index check line must be a JSON object.');
+      }
+      return parsed;
+    });
+}
+
+function parseStructuredValueLine(line) {
+  try {
+    return JSON.parse(line);
+  } catch {
+    return line;
+  }
+}
+
+function formatStructuredValue(value) {
+  return typeof value === 'string' ? JSON.stringify(value) : JSON.stringify(value);
 }
 
 function getConditionTypeOptions(conditionTypes, legacyConditionTypes, currentType) {

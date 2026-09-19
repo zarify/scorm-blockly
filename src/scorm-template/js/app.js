@@ -398,12 +398,29 @@ function buildCheckResultsHtml(results, totalScore, maxScore) {
     html += `<span class="result-icon">${result.passed ? '✓' : '✗'}</span> `;
     html += renderInlineMarkdown(result.feedback);
     if (result.student_detail) {
-      html += `<pre class="result-detail">${escapeHtml(result.student_detail)}</pre>`;
+      html += renderStudentDetailHtml(result.student_detail);
     }
     html += '</li>';
   }
   html += '</ul></div>';
   return html;
+}
+
+function renderStudentDetailHtml(studentDetail) {
+  if (typeof studentDetail === 'string') {
+    return `<div class="result-detail-note formatted-text">${renderInlineMarkdown(studentDetail)}</div>`;
+  }
+
+  if (studentDetail && Array.isArray(studentDetail.sections)) {
+    return studentDetail.sections.map((section) => `
+      <div class="result-detail-section">
+        <div class="result-detail-title">${escapeHtml(section.title || '')}</div>
+        <pre class="result-detail-value">${escapeHtml(section.value || '')}</pre>
+      </div>
+    `).join('');
+  }
+
+  return '';
 }
 
 function areHintsEnabled(cfg) {

@@ -186,9 +186,7 @@ Swap the values of two variables `a` and `b` (starting as `a=5`, `b=10`) so that
 }
 ```
 
-**Tests:** Variable state assertions.
-
-> ⚠️ **Note:** The `variable_state` test type currently only captures the variable `count` at runtime. Tests for `a` and `b` in this example will not work until dynamic variable capture is implemented. This example demonstrates the intended configuration pattern.
+**Tests:** Variable state assertions. `variable_state` now captures whichever variable names your tests request at runtime, so checks like `a` and `b` in this example work as written.
 
 | Test | Type | Weight | What It Checks |
 |------|------|--------|---------------|

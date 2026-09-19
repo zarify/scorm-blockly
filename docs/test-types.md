@@ -34,6 +34,7 @@ Runs the student's code and compares one or both captured runtime text streams:
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `prompt_inputs` | array of strings | No | `[]` | Values returned to successive `window.prompt()` calls |
+| `strict_prompt_inputs` | boolean | No | `true` | If true, extra or missing `prompt()` calls fail the test |
 | `output_assertion` | object | No | disabled unless legacy fields are present | Configures how captured stdout is checked |
 | `prompt_assertion` | object | No | disabled | Configures how captured prompt text is checked |
 | `expected_output` | string | Legacy | — | Legacy alias for `output_assertion.expected` |
@@ -50,6 +51,7 @@ Both `output_assertion` and `prompt_assertion` use the same structure:
 | `enabled` | boolean | No | `false` (`output_assertion` usually `true` in the builder) | Whether this stream is checked or ignored |
 | `expected` | string | No | `""` | Expected runtime text for this stream |
 | `match_mode` | string | No | `"exact"` | How to compare: `"exact"`, `"contains"`, or `"regex"` |
+| `match_any_item` | boolean | No | `false` | When true, compare against any individual captured item instead of the combined transcript |
 | `show_expected` | boolean | No | `false` | Show the expected value to the learner if this assertion fails |
 | `show_actual` | boolean | No | `false` | Show the captured value to the learner if this assertion fails |
 | `success_message` | string | No | built-in default | Optional success message for this assertion |
@@ -74,6 +76,10 @@ Both `output_assertion` and `prompt_assertion` use the same structure:
 
 Prompt text is captured separately from stdout. Each `window.prompt(message)` call contributes its `message` string to the prompt transcript, and prompt messages are joined with `\n` **without** an automatic trailing newline.
 
+If `prompt_assertion.match_any_item` is `true`, each prompt message is checked individually instead of joining all prompt text into one transcript. This is useful when a program has multiple prompts and you want to assert that **one whole prompt** is exactly `"Knock knock"` rather than merely appearing as a substring somewhere in the combined prompt text.
+
+If `strict_prompt_inputs` is `false`, the test will still run even when the program asks for more or fewer prompts than the configured `prompt_inputs`. This is helpful when you want to test prompt/output text in isolation without making the test depend on the student's full prompt sequence.
+
 ### Examples
 
 ```json
@@ -96,6 +102,7 @@ Prompt text is captured separately from stdout. Each `window.prompt(message)` ca
   "id": "test_prompt_message",
   "type": "stdout_match",
   "prompt_inputs": ["cow"],
+  "strict_prompt_inputs": false,
   "output_assertion": {
     "enabled": false
   },
@@ -103,6 +110,7 @@ Prompt text is captured separately from stdout. Each `window.prompt(message)` ca
     "enabled": true,
     "expected": "Knock knock",
     "match_mode": "exact",
+    "match_any_item": true,
     "show_expected": true,
     "failure_message": "Use the prompt text \"Knock knock\"."
   },
@@ -142,6 +150,7 @@ Prompt text is captured separately from stdout. Each `window.prompt(message)` ca
 - `prompt_inputs` are used by automated checks; the normal **▶ Run Code** action still uses real browser prompt dialogs for the live program run, while **✓ Check** uses each test's configured inputs
 - Prompt input matching is strict: if the program asks for more inputs than configured, or leaves configured inputs unused, the test fails explicitly
 - Prompt-only checks still need `prompt_inputs` if the code calls `prompt(...)`
+- Use `prompt_assertion.match_any_item: true` when you want exact/contains/regex matching against any one prompt message rather than against the whole combined prompt transcript
 - `feedback_on_pass` sets the overall success message for the test. For `stdout_match`, it overrides any assertion-specific success messages
 - Use `contains` for partial checking when exact whitespace doesn't matter
 - Use `regex` when multiple valid outputs are acceptable (e.g., any 3-digit number)
@@ -250,18 +259,28 @@ Those older predicate types are still supported for existing configs and API-lev
 
 ## `variable_state`
 
-Runs the student's code and checks the value of a specific variable after execution.
+Runs the student's code and checks the type and/or value of a specific variable after execution. This now supports scalar checks, explicit type checks, and richer list-specific assertions.
 
 ### Additional Fields
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `prompt_inputs` | array of strings | No | `[]` | Values returned to successive `window.prompt()` calls |
+| `strict_prompt_inputs` | boolean | No | `true` | If true, extra or missing `prompt()` calls fail the test before value comparison |
 | `variable_name` | string | ✅ | — | Name of the variable to inspect after code runs |
-| `expected_value` | any | ✅ | — | The expected value to compare against |
-| `comparison` | string | No | `"equals"` | Comparison operator |
+| `expected_type` | string | No | `"any"` | Explicit variable type: `"any"`, `"int"`, `"float"`, `"string"`, or `"list"` |
+| `value_assertion_enabled` | boolean | No | `true` when `expected_value` is present | Whether to compare the variable's value |
+| `expected_value` | any | No | — | The expected value to compare against for scalar checks |
+| `comparison` | string | No | `"equals"` | Comparison operator for scalar checks |
+| `show_coerced_value_hint` | boolean | No | `false` | If true, failed scalar/index checks can explain when the coerced value is right but the type is wrong |
+| `list_assertions` | object | No | all disabled | Extra list-specific checks (length, values, item types, indexes) |
 
-### Comparison Operators
+At least one of these must be enabled:
+- `expected_type` other than `"any"`
+- `value_assertion_enabled: true`
+- one or more enabled `list_assertions`
+
+### Scalar Comparison Operators
 
 | Operator | Behaviour | Example |
 |----------|-----------|---------|
@@ -271,7 +290,36 @@ Runs the student's code and checks the value of a specific variable after execut
 | `gte` | Greater than or equal | `actual >= expected` |
 | `lte` | Less than or equal | `actual <= expected` |
 | `contains` | String contains substring | `String(actual).includes(String(expected))` |
-| `type` | Check JavaScript type | `typeof actual === expected` (e.g., `"number"`) |
+| `type` | Legacy JavaScript type check | `typeof actual === expected` (e.g., `"number"`) |
+
+For most new authoring, prefer `expected_type` over the legacy `type` comparison because `expected_type` can distinguish `int` from `float`, and `list` from other values.
+
+### Variable Types
+
+| Type | Meaning |
+|------|---------|
+| `any` | Do not perform a top-level type check |
+| `int` | JavaScript number that is an integer |
+| `float` | JavaScript number that is not an integer |
+| `string` | JavaScript string |
+| `list` | JavaScript array |
+
+### List Assertions
+
+`list_assertions` can be combined as needed:
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `length_enabled` | boolean | Enable list length checking |
+| `length_value` | integer | Expected length |
+| `length_comparison` | string | `"equals"`, `"gt"`, `"lt"`, `"gte"`, or `"lte"` |
+| `values_enabled` | boolean | Enable list value matching |
+| `values_match_mode` | string | `"exact_order"`, `"same_values_any_order"`, `"expected_subset_of_actual"`, or `"expected_superset_of_actual"` |
+| `expected_values` | array | Expected list values for the chosen value match mode |
+| `item_types_enabled` | boolean | Enable checks on item types |
+| `item_type_mode` | string | `"all"`, `"some"`, or `"none"` |
+| `expected_item_types` | array of strings | Allowed/checked item types (`"int"`, `"float"`, `"string"`, `"list"`) |
+| `index_checks` | array | Per-index checks, each with `index` plus `expected_value`, `expected_type`, or both |
 
 ### Examples
 
@@ -281,6 +329,8 @@ Runs the student's code and checks the value of a specific variable after execut
   "id": "test_count_value",
   "type": "variable_state",
   "variable_name": "count",
+  "expected_type": "int",
+  "value_assertion_enabled": true,
   "expected_value": 3,
   "comparison": "equals",
   "points": 5,
@@ -292,21 +342,62 @@ Runs the student's code and checks the value of a specific variable after execut
   "id": "test_result_range",
   "type": "variable_state",
   "variable_name": "result",
+  "expected_type": "float",
+  "value_assertion_enabled": true,
   "expected_value": 10,
   "comparison": "gt",
   "points": 3,
   "feedback_on_fail": "The result should be greater than 10"
 }
 
-// Variable 'name' should be a string
+// Variable 'name' should be a string, and show when the value is right after coercion
 {
   "id": "test_name_type",
   "type": "variable_state",
   "variable_name": "name",
-  "expected_value": "string",
-  "comparison": "type",
+  "expected_type": "string",
+  "value_assertion_enabled": true,
+  "expected_value": "cow",
+  "comparison": "equals",
+  "show_coerced_value_hint": true,
   "points": 2,
   "feedback_on_fail": "The variable 'name' should contain text, not a number"
+}
+
+// Variable 'items' must be a list with the right values, in any order
+{
+  "id": "test_items_any_order",
+  "type": "variable_state",
+  "variable_name": "items",
+  "expected_type": "list",
+  "list_assertions": {
+    "values_enabled": true,
+    "values_match_mode": "same_values_any_order",
+    "expected_values": [1, 2, 3]
+  },
+  "points": 4,
+  "feedback_on_fail": "Your list should contain exactly 1, 2, and 3."
+}
+
+// Variable 'answers' must be a list of at least 3 strings and have "cow" at index 0
+{
+  "id": "test_answers_shape",
+  "type": "variable_state",
+  "variable_name": "answers",
+  "expected_type": "list",
+  "list_assertions": {
+    "length_enabled": true,
+    "length_value": 3,
+    "length_comparison": "gte",
+    "item_types_enabled": true,
+    "item_type_mode": "all",
+    "expected_item_types": ["string"],
+    "index_checks": [
+      { "index": 0, "expected_value": "cow", "expected_type": "string" }
+    ]
+  },
+  "points": 4,
+  "feedback_on_fail": "Make sure answers is a list of strings, with \"cow\" first."
 }
 ```
 
@@ -315,7 +406,9 @@ Runs the student's code and checks the value of a specific variable after execut
 - Variable capture now follows the `variable_name` fields requested by your test cases
 - Prompt input matching is strict here too: missing or unused configured inputs cause the test to fail before value comparison
 - Variable capture still relies on the variable being addressable as a JavaScript identifier in generated code
-- Complex object state may not be fully captured
+- `show_coerced_value_hint` is useful when you want students to know they have the right value after coercion but still need the correct type
+- List value modes with "subset" / "superset" use multiset semantics, so duplicate values matter
+- Complex object state outside arrays may not be fully captured
 
 ---
 

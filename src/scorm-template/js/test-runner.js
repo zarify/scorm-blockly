@@ -12,8 +12,12 @@
 import { evaluateCondition } from '../../shared/workspace-inspector.js';
 import {
   getPromptInputs as getConfiguredPromptInputs,
+  getVariableListAssertions,
   getStdoutOutputAssertion,
   getStdoutPromptAssertion,
+  normalizeVariableType,
+  normalizeVariableValueAssertionEnabled,
+  shouldEnforcePromptInputCount,
 } from '../../shared/test-config.js';
 
 const EXECUTION_TIMEOUT_MS = 5000;
@@ -344,7 +348,9 @@ function executeCodeDirect(code, promptInputs = [], variableNames = []) {
 
 function assertStdout(tc, executionResult) {
   const points = getTestPoints(tc);
-  const promptMismatch = getPromptMismatch(executionResult);
+  const promptMismatch = shouldEnforcePromptInputCount(tc)
+    ? getPromptMismatch(executionResult)
+    : null;
 
   if (promptMismatch) {
     return {
@@ -386,6 +392,7 @@ function assertStdout(tc, executionResult) {
     assertions.push(evaluateRuntimeTextAssertion({
       assertion: promptAssertion,
       actual: getPromptTranscript(executionResult.prompts),
+      actualItems: getPromptMessages(executionResult.prompts),
       label: 'Prompt text',
       defaultSuccessMessage: 'Prompt text matches!',
       defaultFailureMessage: 'Expected prompt text did not match.',
@@ -426,7 +433,9 @@ function assertBlockStructure(tc, workspace) {
 
 function assertVariableState(tc, executionResult) {
   const points = getTestPoints(tc);
-  const promptMismatch = getPromptMismatch(executionResult);
+  const promptMismatch = shouldEnforcePromptInputCount(tc)
+    ? getPromptMismatch(executionResult)
+    : null;
 
   if (promptMismatch) {
     return {
@@ -451,8 +460,6 @@ function assertVariableState(tc, executionResult) {
   }
 
   const actual = executionResult.variables[tc.variable_name];
-  const expected = tc.expected_value;
-  const comparison = tc.comparison || 'equals';
 
   if (actual === undefined) {
     return {
@@ -465,30 +472,76 @@ function assertVariableState(tc, executionResult) {
     };
   }
 
-  let passed = false;
-  switch (comparison) {
-    case 'equals':
-      passed = actual == expected;
-      break;
-    case 'gt':
-      passed = actual > expected;
-      break;
-    case 'lt':
-      passed = actual < expected;
-      break;
-    case 'gte':
-      passed = actual >= expected;
-      break;
-    case 'lte':
-      passed = actual <= expected;
-      break;
-    case 'contains':
-      passed = String(actual).includes(String(expected));
-      break;
-    case 'type':
-      passed = typeof actual === expected;
-      break;
+  const checks = [];
+  const studentHints = [];
+  const actualType = getValueType(actual);
+  const expectedType = normalizeVariableType(tc.expected_type);
+
+  if (expectedType !== 'any') {
+    const passed = actualType === expectedType;
+    checks.push({
+      passed,
+      detail: passed
+        ? `Type matches expected ${expectedType}`
+        : `Expected ${tc.variable_name} to be ${expectedType}, got ${actualType}`,
+    });
   }
+
+  const valueAssertionEnabled = normalizeVariableValueAssertionEnabled(tc);
+  const comparison = tc.comparison || 'equals';
+  const expected = tc.expected_value;
+
+  if (valueAssertionEnabled) {
+    const valuePassed = compareVariableValues(actual, expected, comparison);
+    checks.push({
+      passed: valuePassed,
+      detail: valuePassed
+        ? `Value comparison passed (${comparison})`
+        : `Expected ${tc.variable_name} ${comparison} ${formatDebugValue(expected)}, got ${formatDebugValue(actual)}`,
+    });
+
+    if (
+      !valuePassed
+      && tc.show_coerced_value_hint
+      && expectedType !== 'any'
+      && expectedType !== 'list'
+    ) {
+      const coercedActual = coerceValueForType(actual, expectedType);
+      if (coercedActual !== COERCION_FAILED && compareVariableValues(coercedActual, expected, comparison)) {
+        studentHints.push(
+          `The value is correct, but not the correct type. ${capitalizeIdentifier(tc.variable_name)} is ${withIndefiniteArticle(actualType)}, not ${withIndefiniteArticle(expectedType)}.`,
+        );
+      }
+    } else if (
+      valuePassed
+      && tc.show_coerced_value_hint
+      && expectedType !== 'any'
+      && expectedType !== 'list'
+      && actualType !== expectedType
+    ) {
+      const coercedActual = coerceValueForType(actual, expectedType);
+      if (coercedActual !== COERCION_FAILED && compareVariableValues(coercedActual, expected, comparison)) {
+        studentHints.push(
+          `The value is correct, but not the correct type. ${capitalizeIdentifier(tc.variable_name)} should be ${withIndefiniteArticle(expectedType)}, not ${withIndefiniteArticle(actualType)}.`,
+        );
+      }
+    }
+  }
+
+  const listAssertions = getVariableListAssertions(tc);
+  if (hasAnyListChecks(listAssertions)) {
+    if (!Array.isArray(actual)) {
+      checks.push({
+        passed: false,
+        detail: `Expected ${tc.variable_name} to be a list before applying list assertions, got ${actualType}`,
+      });
+    } else {
+      checks.push(...evaluateListAssertions(tc.variable_name, actual, listAssertions, tc.show_coerced_value_hint, studentHints));
+    }
+  }
+
+  const failedChecks = checks.filter((check) => !check.passed);
+  const passed = failedChecks.length === 0;
 
   return {
     id: tc.id,
@@ -498,8 +551,237 @@ function assertVariableState(tc, executionResult) {
     feedback: passed
       ? tc.feedback_on_pass || `Variable "${tc.variable_name}" has the correct value!`
       : tc.feedback_on_fail || `Variable "${tc.variable_name}" doesn't have the expected value.`,
-    detail: passed ? null : `Expected ${tc.variable_name} ${comparison} ${expected}, got ${actual}`,
+    detail: passed ? null : failedChecks.map((check) => check.detail).join('\n\n'),
+    student_detail: !passed && studentHints.length > 0 ? studentHints.join('\n\n') : null,
   };
+}
+
+const COERCION_FAILED = Symbol('coercion-failed');
+
+function hasAnyListChecks(listAssertions) {
+  return listAssertions.length_enabled
+    || listAssertions.values_enabled
+    || listAssertions.item_types_enabled
+    || listAssertions.index_checks.length > 0;
+}
+
+function compareVariableValues(actual, expected, comparison) {
+  switch (comparison) {
+    case 'equals':
+      return actual == expected;
+    case 'gt':
+      return actual > expected;
+    case 'lt':
+      return actual < expected;
+    case 'gte':
+      return actual >= expected;
+    case 'lte':
+      return actual <= expected;
+    case 'contains':
+      return String(actual).includes(String(expected));
+    case 'type':
+      return typeof actual === expected;
+    default:
+      return false;
+  }
+}
+
+function getValueType(value) {
+  if (Array.isArray(value)) return 'list';
+  if (typeof value === 'string') return 'string';
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    return Number.isInteger(value) ? 'int' : 'float';
+  }
+  if (typeof value === 'number') return 'float';
+  if (value === null) return 'null';
+  return typeof value;
+}
+
+function coerceValueForType(value, expectedType) {
+  switch (expectedType) {
+    case 'int':
+      if (typeof value === 'number') return Math.trunc(value);
+      if (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value))) {
+        return Math.trunc(Number(value));
+      }
+      return COERCION_FAILED;
+    case 'float':
+      if (typeof value === 'number') return Number(value);
+      if (typeof value === 'string' && value.trim() !== '' && !Number.isNaN(Number(value))) {
+        return Number(value);
+      }
+      return COERCION_FAILED;
+    case 'string':
+      return String(value);
+    default:
+      return COERCION_FAILED;
+  }
+}
+
+function evaluateListAssertions(variableName, actualList, listAssertions, showCoercedValueHint, studentHints) {
+  const checks = [];
+
+  if (listAssertions.length_enabled) {
+    const actualLength = actualList.length;
+    const expectedLength = listAssertions.length_value;
+    const comparisonPassed = compareVariableValues(actualLength, expectedLength, listAssertions.length_comparison);
+    checks.push({
+      passed: comparisonPassed,
+      detail: comparisonPassed
+        ? `List length ${listAssertions.length_comparison} ${expectedLength}`
+        : `Expected ${variableName} length ${listAssertions.length_comparison} ${expectedLength}, got ${actualLength}`,
+    });
+  }
+
+  if (listAssertions.values_enabled) {
+    const valuesPassed = compareListValues(actualList, listAssertions.expected_values, listAssertions.values_match_mode);
+    checks.push({
+      passed: valuesPassed,
+      detail: valuesPassed
+        ? `List values matched (${listAssertions.values_match_mode})`
+        : `Expected ${variableName} values to match mode ${listAssertions.values_match_mode}. Expected ${formatDebugValue(listAssertions.expected_values)}, got ${formatDebugValue(actualList)}`,
+    });
+  }
+
+  if (listAssertions.item_types_enabled) {
+    const itemTypesPassed = compareListItemTypes(actualList, listAssertions.expected_item_types, listAssertions.item_type_mode);
+    checks.push({
+      passed: itemTypesPassed,
+      detail: itemTypesPassed
+        ? `List item types matched mode ${listAssertions.item_type_mode}`
+        : `Expected ${variableName} item types to satisfy ${listAssertions.item_type_mode} ${listAssertions.expected_item_types.join(', ')}, got ${actualList.map(getValueType).join(', ') || 'empty list'}`,
+    });
+  }
+
+  for (const check of listAssertions.index_checks) {
+    const entry = actualList[check.index];
+    const exists = check.index < actualList.length;
+    if (!exists) {
+      checks.push({
+        passed: false,
+        detail: `Expected ${variableName}[${check.index}] to exist, but the list length is ${actualList.length}`,
+      });
+      continue;
+    }
+
+    const entryChecks = [];
+    const entryType = getValueType(entry);
+    const expectedType = normalizeVariableType(check.expected_type);
+
+    if (expectedType !== 'any') {
+      entryChecks.push({
+        passed: entryType === expectedType,
+        detail: `Expected ${variableName}[${check.index}] to be ${expectedType}, got ${entryType}`,
+      });
+    }
+    if (check.expected_value !== undefined) {
+      const valuePassed = compareVariableValues(entry, check.expected_value, 'equals');
+      entryChecks.push({
+        passed: valuePassed,
+        detail: `Expected ${variableName}[${check.index}] to equal ${formatDebugValue(check.expected_value)}, got ${formatDebugValue(entry)}`,
+      });
+      if (
+        !valuePassed
+        && showCoercedValueHint
+        && expectedType !== 'any'
+        && expectedType !== 'list'
+      ) {
+        const coercedEntry = coerceValueForType(entry, expectedType);
+        if (coercedEntry !== COERCION_FAILED && compareVariableValues(coercedEntry, check.expected_value, 'equals')) {
+          studentHints.push(
+            `The value at ${variableName}[${check.index}] is correct, but not the correct type. It is ${withIndefiniteArticle(entryType)}, not ${withIndefiniteArticle(expectedType)}.`,
+          );
+        }
+      }
+    }
+
+    const failedEntryChecks = entryChecks.filter((entryCheck) => !entryCheck.passed);
+    checks.push({
+      passed: failedEntryChecks.length === 0,
+      detail: failedEntryChecks.length === 0
+        ? `${variableName}[${check.index}] matched the expected index rule`
+        : failedEntryChecks.map((entryCheck) => entryCheck.detail).join('\n'),
+    });
+  }
+
+  return checks;
+}
+
+function compareListValues(actualList, expectedValues, matchMode) {
+  switch (matchMode) {
+    case 'exact_order':
+      return deepEqual(actualList, expectedValues);
+    case 'same_values_any_order':
+      return multisetIncludes(actualList, expectedValues) && multisetIncludes(expectedValues, actualList);
+    case 'expected_subset_of_actual':
+      return multisetIncludes(actualList, expectedValues);
+    case 'expected_superset_of_actual':
+      return multisetIncludes(expectedValues, actualList);
+    default:
+      return false;
+  }
+}
+
+function compareListItemTypes(actualList, expectedTypes, mode) {
+  const actualTypes = actualList.map(getValueType);
+  const matches = actualTypes.map((type) => expectedTypes.includes(type));
+  switch (mode) {
+    case 'all':
+      return matches.every(Boolean);
+    case 'some':
+      return matches.some(Boolean);
+    case 'none':
+      return matches.every((match) => !match);
+    default:
+      return false;
+  }
+}
+
+function multisetIncludes(containerValues, candidateValues) {
+  const counts = new Map();
+  for (const value of containerValues) {
+    const key = serializeComparableValue(value);
+    counts.set(key, (counts.get(key) || 0) + 1);
+  }
+  for (const value of candidateValues) {
+    const key = serializeComparableValue(value);
+    const remaining = counts.get(key) || 0;
+    if (remaining <= 0) return false;
+    counts.set(key, remaining - 1);
+  }
+  return true;
+}
+
+function deepEqual(left, right) {
+  return serializeComparableValue(left) === serializeComparableValue(right);
+}
+
+function serializeComparableValue(value) {
+  return JSON.stringify(value);
+}
+
+function formatDebugValue(value) {
+  return JSON.stringify(value);
+}
+
+function withIndefiniteArticle(typeName) {
+  if (typeof typeName !== 'string' || typeName === '') return String(typeName);
+  return /^[aeiou]/i.test(typeName) ? `an ${typeName}` : `a ${typeName}`;
+}
+
+function capitalizeIdentifier(name) {
+  const text = String(name ?? '');
+  return text ? text.charAt(0).toUpperCase() + text.slice(1) : 'The variable';
+}
+
+function formatStudentFacingValue(value) {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item, index) => `[${index}] ${formatStudentFacingValue(item)}`).join('\n');
+  }
+  return JSON.stringify(value, null, 2);
 }
 
 function getExecutionPlanKey(promptInputs) {
@@ -598,27 +880,15 @@ function getPromptMismatch(executionResult) {
 function evaluateRuntimeTextAssertion({
   assertion,
   actual,
+  actualItems = [],
   label,
   defaultSuccessMessage,
   defaultFailureMessage,
 }) {
-  let passed = false;
-
-  switch (assertion.match_mode) {
-    case 'exact':
-      passed = actual === assertion.expected;
-      break;
-    case 'contains':
-      passed = actual.includes(assertion.expected);
-      break;
-    case 'regex':
-      try {
-        passed = new RegExp(assertion.expected).test(actual);
-      } catch {
-        passed = false;
-      }
-      break;
-  }
+  const valuesToCheck = assertion.match_any_item ? actualItems : [actual];
+  const passed = valuesToCheck.some((candidate) => doesRuntimeTextMatch(candidate, assertion.expected, assertion.match_mode));
+  const actualForDisplay = assertion.match_any_item ? valuesToCheck : actual;
+  const scopeLabel = assertion.match_any_item ? 'any single item' : 'combined transcript';
 
   const successMessage = assertion.success_message || defaultSuccessMessage;
   const failureMessage = assertion.failure_message || defaultFailureMessage;
@@ -626,14 +896,31 @@ function evaluateRuntimeTextAssertion({
   return {
     label,
     expected: assertion.expected,
-    actual,
+    actual: actualForDisplay,
     passed,
     feedback: passed ? successMessage : failureMessage,
     usedCustomSuccessMessage: Boolean(assertion.success_message),
     usedCustomFailureMessage: Boolean(assertion.failure_message),
-    detail: `${label} (${assertion.match_mode})\nExpected: ${JSON.stringify(assertion.expected)}\nGot: ${JSON.stringify(actual)}`,
-    studentDetail: passed ? null : createStudentAssertionDetail(label, assertion, actual),
+    detail: `${label} (${assertion.match_mode}, ${scopeLabel})\nExpected: ${JSON.stringify(assertion.expected)}\nGot: ${JSON.stringify(actualForDisplay)}`,
+    studentDetail: passed ? null : createStudentAssertionDetail(label, assertion, actualForDisplay),
   };
+}
+
+function doesRuntimeTextMatch(actual, expected, matchMode) {
+  switch (matchMode) {
+    case 'exact':
+      return actual === expected;
+    case 'contains':
+      return actual.includes(expected);
+    case 'regex':
+      try {
+        return new RegExp(expected).test(actual);
+      } catch {
+        return false;
+      }
+    default:
+      return false;
+  }
 }
 
 function buildStdoutSuccessFeedback(assertions) {
@@ -669,25 +956,37 @@ function buildStdoutFailureFeedback(testCase, failedAssertions) {
 }
 
 function buildStudentFacingAssertionDetail(failedAssertions) {
-  const details = failedAssertions
+  const sections = failedAssertions
     .map((assertion) => assertion.studentDetail)
-    .filter(Boolean);
+    .filter(Boolean)
+    .flatMap((detail) => Array.isArray(detail.sections) ? detail.sections : []);
 
-  return details.length > 0 ? details.join('\n\n') : null;
+  return sections.length > 0 ? { sections } : null;
 }
 
 function createStudentAssertionDetail(label, assertion, actual) {
-  const lines = [];
+  const sections = [];
   if (assertion.show_expected) {
-    lines.push(`Expected ${label.toLowerCase()}:\n${JSON.stringify(assertion.expected)}`);
+    sections.push({
+      title: `Expected ${label.toLowerCase()}`,
+      value: formatStudentFacingValue(assertion.expected),
+    });
   }
   if (assertion.show_actual) {
-    lines.push(`Actual ${label.toLowerCase()}:\n${JSON.stringify(actual)}`);
+    sections.push({
+      title: `Actual ${label.toLowerCase()}`,
+      value: formatStudentFacingValue(actual),
+    });
   }
-  return lines.length > 0 ? lines.join('\n\n') : null;
+  return sections.length > 0 ? { sections } : null;
 }
 
 function getPromptTranscript(prompts) {
   if (!Array.isArray(prompts) || prompts.length === 0) return '';
   return prompts.map((entry) => String(entry?.message ?? '')).join('\n');
+}
+
+function getPromptMessages(prompts) {
+  if (!Array.isArray(prompts) || prompts.length === 0) return [];
+  return prompts.map((entry) => String(entry?.message ?? ''));
 }
