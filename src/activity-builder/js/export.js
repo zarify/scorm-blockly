@@ -205,7 +205,7 @@ function generateIndexHtml(config) {
         <button id="btn-close-results-modal" class="btn btn-secondary results-modal-close" type="button" aria-label="Close results">✕</button>
       </header>
       <div class="results-modal-body">
-        <div id="output-panel" class="panel"><p class="output-placeholder">Run your code or check your solution to see output, prompts, and feedback here.</p></div>
+        <div id="output-panel" class="panel"><p class="output-placeholder">Run your code or check your solution to open the console, prompts, and feedback here.</p></div>
         <div id="code-panel" class="panel" style="display:none"><h3>Generated Code</h3><pre><code></code></pre></div>
       </div>
     </section>

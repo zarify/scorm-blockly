@@ -3,6 +3,7 @@
  */
 
 export const VALID_RUNTIME_TEXT_MATCH_MODES = ['exact', 'contains', 'regex'];
+export const VALID_RUNTIME_EXECUTION_SCOPES = ['main', 'function'];
 export const VALID_VARIABLE_TYPES = ['any', 'int', 'float', 'string', 'list'];
 export const VALID_LIST_LENGTH_COMPARISONS = ['equals', 'gt', 'lt', 'gte', 'lte'];
 export const VALID_LIST_VALUE_MATCH_MODES = [
@@ -24,6 +25,12 @@ const DEFAULT_RUNTIME_TEXT_ASSERTION = Object.freeze({
   failure_message: '',
 });
 
+const DEFAULT_RUNTIME_EXECUTION_CONTEXT = Object.freeze({
+  scope: 'main',
+  function_name: '',
+  arguments: [],
+});
+
 const DEFAULT_LIST_ASSERTIONS = Object.freeze({
   length_enabled: false,
   length_value: 0,
@@ -35,6 +42,20 @@ const DEFAULT_LIST_ASSERTIONS = Object.freeze({
   item_type_mode: 'all',
   expected_item_types: [],
   index_checks: [],
+});
+
+const DEFAULT_FUNCTION_RETURN_ASSERTION = Object.freeze({
+  enabled: false,
+  arguments: [],
+  expected_type: 'any',
+  value_assertion_enabled: false,
+  comparison: 'equals',
+  show_coerced_value_hint: false,
+  show_expected: false,
+  show_actual: false,
+  success_message: '',
+  failure_message: '',
+  list_assertions: DEFAULT_LIST_ASSERTIONS,
 });
 
 /**
@@ -169,6 +190,34 @@ export function hasEnabledStdoutAssertion(testCase) {
   return getStdoutOutputAssertion(testCase).enabled || getStdoutPromptAssertion(testCase).enabled;
 }
 
+export function normalizeRuntimeExecutionScope(scope) {
+  return VALID_RUNTIME_EXECUTION_SCOPES.includes(scope) ? scope : 'main';
+}
+
+export function getStdoutExecutionContext(testCase) {
+  const source = isObjectLike(testCase?.execution_context) ? testCase.execution_context : {};
+  const hasFunctionFields = source.function_name !== undefined || source.arguments !== undefined;
+  const scope = source.scope !== undefined
+    ? normalizeRuntimeExecutionScope(source.scope)
+    : hasFunctionFields
+      ? 'function'
+      : DEFAULT_RUNTIME_EXECUTION_CONTEXT.scope;
+
+  return {
+    scope,
+    ...(scope === 'function'
+      ? {
+        function_name: source.function_name !== undefined
+          ? String(source.function_name)
+          : DEFAULT_RUNTIME_EXECUTION_CONTEXT.function_name,
+        arguments: Array.isArray(source.arguments)
+          ? source.arguments
+          : DEFAULT_RUNTIME_EXECUTION_CONTEXT.arguments,
+      }
+      : {}),
+  };
+}
+
 export function normalizeVariableType(value) {
   return VALID_VARIABLE_TYPES.includes(value) ? value : 'any';
 }
@@ -190,6 +239,10 @@ export function normalizeVariableValueAssertionEnabled(testCase, options = {}) {
     return Boolean(testCase.value_assertion_enabled);
   }
   return options.defaultEnabled ?? testCase?.expected_value !== undefined;
+}
+
+export function normalizeFunctionParameterCountEnabled(testCase) {
+  return Boolean(testCase?.parameter_count_enabled);
 }
 
 export function normalizeListExpectedTypes(value) {
@@ -228,6 +281,52 @@ export function getVariableListAssertions(testCase) {
   };
 }
 
+export function getFunctionReturnAssertion(testCase) {
+  const source = isObjectLike(testCase?.return_assertion) ? testCase.return_assertion : {};
+  const expectedType = normalizeVariableType(source.expected_type);
+  const hasLegacyLikeFields = source.expected_value !== undefined
+    || source.expected_type !== undefined
+    || source.comparison !== undefined
+    || source.show_coerced_value_hint !== undefined
+    || source.show_expected !== undefined
+    || source.show_actual !== undefined
+    || source.success_message !== undefined
+    || source.failure_message !== undefined
+    || source.arguments !== undefined
+    || source.value_assertion_enabled !== undefined
+    || source.list_assertions !== undefined
+    || hasEnabledListAssertion(source);
+
+  return {
+    enabled: source.enabled !== undefined
+      ? Boolean(source.enabled)
+      : hasLegacyLikeFields,
+    arguments: Array.isArray(source.arguments) ? source.arguments : [],
+    expected_type: expectedType,
+    value_assertion_enabled: normalizeVariableValueAssertionEnabled(source),
+    ...(source.expected_value !== undefined ? { expected_value: source.expected_value } : {}),
+    comparison: ['equals', 'gt', 'lt', 'gte', 'lte', 'contains', 'type'].includes(source.comparison)
+      ? source.comparison
+      : DEFAULT_FUNCTION_RETURN_ASSERTION.comparison,
+    show_coerced_value_hint: source.show_coerced_value_hint !== undefined
+      ? Boolean(source.show_coerced_value_hint)
+      : Boolean(DEFAULT_FUNCTION_RETURN_ASSERTION.show_coerced_value_hint),
+    show_expected: source.show_expected !== undefined
+      ? Boolean(source.show_expected)
+      : Boolean(DEFAULT_FUNCTION_RETURN_ASSERTION.show_expected),
+    show_actual: source.show_actual !== undefined
+      ? Boolean(source.show_actual)
+      : Boolean(DEFAULT_FUNCTION_RETURN_ASSERTION.show_actual),
+    success_message: source.success_message !== undefined
+      ? String(source.success_message)
+      : String(DEFAULT_FUNCTION_RETURN_ASSERTION.success_message),
+    failure_message: source.failure_message !== undefined
+      ? String(source.failure_message)
+      : String(DEFAULT_FUNCTION_RETURN_ASSERTION.failure_message),
+    list_assertions: getVariableListAssertions(source),
+  };
+}
+
 export function hasEnabledListAssertion(testCase) {
   const assertions = getVariableListAssertions(testCase);
   return assertions.length_enabled
@@ -257,6 +356,7 @@ export function normalizeTestCase(testCase) {
   if (testCase.type === 'stdout_match') {
     testCase.output_assertion = getStdoutOutputAssertion(testCase);
     testCase.prompt_assertion = getStdoutPromptAssertion(testCase);
+    testCase.execution_context = getStdoutExecutionContext(testCase);
     delete testCase.expected_output;
     delete testCase.match_mode;
   } else if (testCase.type === 'variable_state') {
@@ -264,6 +364,12 @@ export function normalizeTestCase(testCase) {
     testCase.value_assertion_enabled = normalizeVariableValueAssertionEnabled(testCase);
     testCase.show_coerced_value_hint = Boolean(testCase.show_coerced_value_hint);
     testCase.list_assertions = getVariableListAssertions(testCase);
+  } else if (testCase.type === 'function_state') {
+    delete testCase.prompt_inputs;
+    delete testCase.strict_prompt_inputs;
+    testCase.parameter_count_enabled = normalizeFunctionParameterCountEnabled(testCase);
+    testCase.parameter_count = Math.max(0, Math.trunc(Number(testCase.parameter_count) || 0));
+    testCase.return_assertion = getFunctionReturnAssertion(testCase);
   }
 
   return testCase;

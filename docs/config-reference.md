@@ -247,13 +247,15 @@ All test cases share these fields:
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `id` | string | ✅ | — | Unique test identifier |
-| `type` | string | ✅ | — | `"stdout_match"`, `"block_structure"`, or `"variable_state"` |
+| `type` | string | ✅ | — | `"stdout_match"`, `"block_structure"`, `"variable_state"`, or `"function_state"` |
 | `points` | integer | ✅ | — | Integer points awarded when the test passes |
 | `weight` | integer | Legacy | — | Legacy alias for `points`, still accepted on import |
 | `feedback_on_pass` | string | No | — | Custom message shown when this test passes |
 | `feedback_on_fail` | string | No | — | Custom message shown when this test fails |
 
 See [Test Types](test-types.md) for type-specific fields.
+
+For `stdout_match`, you can also set `execution_context.scope` to `"function"` and provide `function_name` + `arguments` to capture only the prompt/output produced by that function call after the student's top-level setup code runs.
 
 **Example:**
 ```json

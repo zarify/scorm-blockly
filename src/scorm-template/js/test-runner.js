@@ -5,22 +5,28 @@
  * - stdout_match: compare configured runtime text assertions (stdout, prompt text, or both)
  * - block_structure: inspect workspace for required block patterns
  * - variable_state: inspect variable values after execution
+ * - function_state: inspect function definitions and return values
  *
  * Code runs in a Web Worker with a timeout to prevent infinite loops.
  */
 
 import { evaluateCondition } from '../../shared/workspace-inspector.js';
 import {
+  getFunctionReturnAssertion,
   getPromptInputs as getConfiguredPromptInputs,
+  getStdoutExecutionContext,
   getVariableListAssertions,
   getStdoutOutputAssertion,
   getStdoutPromptAssertion,
+  normalizeFunctionParameterCountEnabled,
   normalizeVariableType,
   normalizeVariableValueAssertionEnabled,
   shouldEnforcePromptInputCount,
 } from '../../shared/test-config.js';
 
 const EXECUTION_TIMEOUT_MS = 5000;
+const ASYNC_FUNCTION = Object.getPrototypeOf(async function emptyAsyncFunction() {}).constructor;
+export const INTERACTIVE_RUN_CANCELLED_ERROR = 'Run cancelled.';
 
 /**
  * @typedef {Object} TestResult
@@ -70,6 +76,9 @@ export async function runTests(testCases, generatedCode, workspace, options = {}
       case 'variable_state':
         result = assertVariableState(tc, executionResult);
         break;
+      case 'function_state':
+        result = assertFunctionState(tc, executionResult);
+        break;
       default:
         result = {
           id: tc.id,
@@ -93,16 +102,53 @@ function buildExecutionPlans(testCases) {
   const executionPlans = new Map();
 
   for (const tc of testCases) {
-    if (tc.type !== 'stdout_match' && tc.type !== 'variable_state') continue;
-
-    const promptInputs = getPromptInputs(tc);
-    const planKey = getExecutionPlanKey(promptInputs);
-    if (!executionPlans.has(planKey)) {
-      executionPlans.set(planKey, { promptInputs, variableNames: new Set() });
+    if (tc.type === 'stdout_match') {
+      const stdoutExecutionContext = getStdoutExecutionContext(tc);
+      if (stdoutExecutionContext.scope === 'function') {
+        executionPlans.set(getStdoutExecutionPlanKey(tc), {
+          promptInputs: getPromptInputs(tc),
+          variableNames: new Set(),
+          functionNames: new Set(stdoutExecutionContext.function_name ? [stdoutExecutionContext.function_name] : []),
+          functionCalls: [
+            createFunctionCallPlan(
+              stdoutExecutionContext.function_name,
+              stdoutExecutionContext.arguments,
+            ),
+          ],
+        });
+        continue;
+      }
     }
 
-    if (tc.type === 'variable_state' && tc.variable_name) {
-      executionPlans.get(planKey).variableNames.add(tc.variable_name);
+    if (tc.type === 'stdout_match' || tc.type === 'variable_state') {
+      const promptInputs = getPromptInputs(tc);
+      const planKey = getExecutionPlanKey(promptInputs);
+      if (!executionPlans.has(planKey)) {
+        executionPlans.set(planKey, {
+          promptInputs,
+          variableNames: new Set(),
+          functionNames: new Set(),
+          functionCalls: [],
+        });
+      }
+
+      if (tc.type === 'variable_state' && tc.variable_name) {
+        executionPlans.get(planKey).variableNames.add(tc.variable_name);
+      }
+      continue;
+    }
+
+    if (tc.type === 'function_state') {
+      const returnAssertion = getFunctionReturnAssertion(tc);
+      const functionCalls = returnAssertion.enabled && tc.function_name
+        ? [createFunctionCallPlan(tc.function_name, returnAssertion.arguments)]
+        : [];
+      executionPlans.set(getFunctionExecutionPlanKey(tc), {
+        promptInputs: [],
+        variableNames: new Set(),
+        functionNames: new Set(tc.function_name ? [tc.function_name] : []),
+        functionCalls,
+      });
     }
   }
 
@@ -110,17 +156,30 @@ function buildExecutionPlans(testCases) {
 }
 
 async function getExecutionResultForTest(testCase, generatedCode, executionPlans, executionResults) {
-  if (testCase.type !== 'stdout_match' && testCase.type !== 'variable_state') {
+  if (
+    testCase.type !== 'stdout_match'
+    && testCase.type !== 'variable_state'
+    && testCase.type !== 'function_state'
+  ) {
     return null;
   }
 
-  const planKey = getExecutionPlanKey(getPromptInputs(testCase));
+  const planKey = testCase.type === 'function_state'
+    ? getFunctionExecutionPlanKey(testCase)
+    : testCase.type === 'stdout_match' && getStdoutExecutionContext(testCase).scope === 'function'
+      ? getStdoutExecutionPlanKey(testCase)
+    : getExecutionPlanKey(getPromptInputs(testCase));
   const plan = executionPlans.get(planKey);
 
   if (!executionResults.has(planKey)) {
     executionResults.set(
       planKey,
-      await executeCode(generatedCode, plan.promptInputs, [...plan.variableNames]),
+      await executeCode(generatedCode, {
+        promptInputs: plan.promptInputs,
+        variableNames: [...plan.variableNames],
+        functionNames: [...plan.functionNames],
+        functionCalls: plan.functionCalls,
+      }),
     );
   }
 
@@ -129,146 +188,34 @@ async function getExecutionResultForTest(testCase, generatedCode, executionPlans
 
 /**
  * Execute student code for an interactive run.
- * Uses the browser's real prompt() so learners/authors can supply input live.
  * @param {string} generatedCode
- * @returns {{ success: boolean, stdout: string, prompts: Array<{message: string, response: string | null, cancelled: boolean}>, error: string | null }}
+ * @param {{ onStdout?: (line: string) => void, requestInput?: ({ message: string, defaultValue: string, inputType: 'text' | 'number' }) => Promise<string> | string, isCancelled?: () => boolean }} [hooks]
+ * @returns {Promise<{ success: boolean, cancelled: boolean, stdout: string, variables: object, prompts: Array<{message: string, response: string | null, cancelled: boolean}>, promptDiagnostics: null, error: string | null }>}
  */
-export function executeInteractiveRun(generatedCode) {
-  const stdout = [];
-  const promptOwner = globalThis.window || globalThis;
-  const originalConsoleLog = console.log;
-  const originalPrompt = globalThis.prompt;
-  const originalWindowPrompt = promptOwner.prompt;
-  const nativePrompt =
-    typeof originalWindowPrompt === 'function'
-      ? originalWindowPrompt.bind(promptOwner)
-      : typeof originalPrompt === 'function'
-        ? originalPrompt.bind(globalThis)
-        : null;
-  const promptLog = [];
+export async function executeInteractiveRun(generatedCode, hooks = {}) {
+  const executionContext = createExecutionContext({
+    promptInputCount: null,
+    inputProvider: createInteractiveInputProvider(hooks.requestInput),
+    onStdout: hooks.onStdout,
+    isCancelled: hooks.isCancelled,
+  });
 
-  console.log = (...args) => stdout.push(args.map(String).join(' '));
-
-  const promptImpl = (message, defaultValue = '') => {
-    const normalizedMessage = String(message ?? '');
-    const normalizedDefault = defaultValue == null ? '' : String(defaultValue);
-    const response = nativePrompt ? nativePrompt(normalizedMessage, normalizedDefault) : normalizedDefault;
-
-    promptLog.push({
-      message: normalizedMessage,
-      response: response == null ? null : String(response),
-      cancelled: response == null,
-    });
-
-    return response;
-  };
-
-  globalThis.prompt = promptImpl;
-  promptOwner.prompt = promptImpl;
-
-  try {
-    new Function(generatedCode)();
-    return {
-      success: true,
-      stdout: stdout.join('\n') + (stdout.length > 0 ? '\n' : ''),
-      prompts: promptLog,
-      error: null,
-    };
-  } catch (err) {
-    return {
-      success: false,
-      stdout: stdout.join('\n') + (stdout.length > 0 ? '\n' : ''),
-      prompts: promptLog,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  } finally {
-    console.log = originalConsoleLog;
-    globalThis.prompt = originalPrompt;
-    promptOwner.prompt = originalWindowPrompt;
-  }
+  return executeProgramWithContext(generatedCode, executionContext);
 }
 
 /**
  * Execute code in a sandboxed environment with timeout.
  * Uses a Web Worker if available, falls back to Function constructor.
  */
-async function executeCode(code, promptInputs = [], variableNames = []) {
-  const variableCaptureSource = buildVariableCaptureSource(variableNames);
+async function executeCode(code, executionPlan = {}) {
+  const promptInputs = Array.isArray(executionPlan.promptInputs) ? executionPlan.promptInputs : [];
+  const variableNames = Array.isArray(executionPlan.variableNames) ? executionPlan.variableNames : [];
+  const functionNames = Array.isArray(executionPlan.functionNames) ? executionPlan.functionNames : [];
+  const functionCalls = Array.isArray(executionPlan.functionCalls) ? executionPlan.functionCalls : [];
+  const captureSource = buildExecutionCaptureSource({ variableNames, functionNames, functionCalls });
   const promptInputCount = promptInputs.length;
-
-  // Build worker code that captures console.log and variable state
-  const workerSource = `
-    const __stdout = [];
-    const __initialPromptInputs = ${JSON.stringify(promptInputs)};
-    const __promptLog = [];
-    const __makePrompt = function(initialInputs, shouldLog = true) {
-      const queue = [...initialInputs];
-      return function(message, defaultValue = '') {
-        const fallback = defaultValue == null ? '' : String(defaultValue);
-        const usedProvidedInput = queue.length > 0;
-        const response = usedProvidedInput ? String(queue.shift()) : fallback;
-        if (shouldLog) {
-          __promptLog.push({ message: String(message ?? ''), response, usedProvidedInput });
-        }
-        return response;
-      };
-    };
-    const __assignPrompt = function(promptImpl) {
-      self.prompt = promptImpl;
-      self.window = Object.assign(self.window || {}, { prompt: promptImpl });
-    };
-    console.log = function() {
-      const line = Array.from(arguments).map(String).join(' ');
-      __stdout.push(line);
-    };
-    __assignPrompt(__makePrompt(__initialPromptInputs));
-
-    try {
-      // Execute the student code
-      const __fn = new Function(${JSON.stringify(code)});
-      __fn();
-
-      const __vars = {};
-      if (${JSON.stringify(variableCaptureSource)} !== '{}') {
-        __assignPrompt(__makePrompt(__initialPromptInputs, false));
-        const __varFn = new Function(${JSON.stringify(code + '\nreturn ' + variableCaptureSource + ';')});
-        try {
-          const __result = __varFn();
-          Object.assign(__vars, __result);
-        } catch (e) {}
-      }
-
-      postMessage({
-        success: true,
-        stdout: __stdout.join('\\n') + ((__stdout.length > 0) ? '\\n' : ''),
-        variables: __vars,
-        prompts: __promptLog,
-        promptDiagnostics: {
-          configuredInputCount: __initialPromptInputs.length,
-          promptCallCount: __promptLog.length,
-          usedProvidedInputCount: __promptLog.filter((entry) => entry.usedProvidedInput).length,
-          underflowCount: __promptLog.filter((entry) => !entry.usedProvidedInput).length,
-          unusedInputCount: Math.max(0, __initialPromptInputs.length - __promptLog.filter((entry) => entry.usedProvidedInput).length)
-        },
-        error: null
-      });
-    } catch (err) {
-      postMessage({
-        success: false,
-        stdout: __stdout.join('\\n') + ((__stdout.length > 0) ? '\\n' : ''),
-        variables: {},
-        prompts: __promptLog,
-        promptDiagnostics: {
-          configuredInputCount: __initialPromptInputs.length,
-          promptCallCount: __promptLog.length,
-          usedProvidedInputCount: __promptLog.filter((entry) => entry.usedProvidedInput).length,
-          underflowCount: __promptLog.filter((entry) => !entry.usedProvidedInput).length,
-          unusedInputCount: Math.max(0, __initialPromptInputs.length - __promptLog.filter((entry) => entry.usedProvidedInput).length)
-        },
-        error: err.toString()
-      });
-    }
-  `;
+  const programSource = buildExecutableProgramSource(code, captureSource);
+  const workerSource = buildWorkerExecutionSource(programSource, promptInputs);
 
   return new Promise((resolve) => {
     try {
@@ -311,7 +258,7 @@ async function executeCode(code, promptInputs = [], variableNames = []) {
       };
     } catch {
       // Web Worker not available — fallback to direct execution
-      resolve(executeCodeDirect(code, promptInputs, variableNames));
+      resolve(executeCodeDirect(code, executionPlan));
     }
   });
 }
@@ -319,61 +266,426 @@ async function executeCode(code, promptInputs = [], variableNames = []) {
 /**
  * Fallback: execute code directly (no worker isolation).
  */
-function executeCodeDirect(code, promptInputs = [], variableNames = []) {
-  const stdout = [];
-  const origLog = console.log;
-  const promptOwner = globalThis.window || globalThis;
-  const origPrompt = globalThis.prompt;
-  const origWindowPrompt = promptOwner.prompt;
-  const remainingPromptInputs = [...promptInputs];
-  const promptLog = [];
+async function executeCodeDirect(code, executionPlan = {}) {
+  const promptInputs = Array.isArray(executionPlan.promptInputs) ? executionPlan.promptInputs : [];
+  const executionContext = createExecutionContext({
+    promptInputCount: promptInputs.length,
+    inputProvider: createScriptedInputProvider(promptInputs),
+    variableNames: Array.isArray(executionPlan.variableNames) ? executionPlan.variableNames : [],
+    functionNames: Array.isArray(executionPlan.functionNames) ? executionPlan.functionNames : [],
+    functionCalls: Array.isArray(executionPlan.functionCalls) ? executionPlan.functionCalls : [],
+  });
 
-  console.log = (...args) => stdout.push(args.map(String).join(' '));
-  const promptImpl = (message, defaultValue = '') => {
-    const fallback = defaultValue == null ? '' : String(defaultValue);
-    const usedProvidedInput = remainingPromptInputs.length > 0;
-    const response = usedProvidedInput ? String(remainingPromptInputs.shift()) : fallback;
-    promptLog.push({ message: String(message ?? ''), response, usedProvidedInput });
-    return response;
+  return executeProgramWithContext(code, executionContext);
+}
+
+function buildExecutableProgramSource(code, captureSource) {
+  return [
+    'const console = { log: (...args) => __runtime.writeLine(...args) };',
+    code,
+    `return ${captureSource};`,
+  ].join('\n');
+}
+
+function buildWorkerExecutionSource(programSource, promptInputs) {
+  return `
+    const AsyncFunction = Object.getPrototypeOf(async function emptyAsyncFunction() {}).constructor;
+    const __stdout = [];
+    const __initialPromptInputs = ${JSON.stringify(promptInputs)};
+    const __promptLog = [];
+    const __queue = [...__initialPromptInputs];
+    const __programSource = ${JSON.stringify(programSource)};
+    const __runtime = {
+      async writeLine() {
+        const line = Array.from(arguments).map(String).join(' ');
+        __stdout.push(line);
+        return line;
+      },
+      async promptText(message, defaultValue = '') {
+        const normalizedMessage = String(message ?? '');
+        const normalizedDefault = defaultValue == null ? '' : String(defaultValue);
+        const usedProvidedInput = __queue.length > 0;
+        const response = usedProvidedInput ? String(__queue.shift()) : normalizedDefault;
+        __promptLog.push({
+          message: normalizedMessage,
+          response,
+          cancelled: false,
+          usedProvidedInput,
+        });
+        return response;
+      },
+      async promptNumber(message, defaultValue = '') {
+        const response = await __runtime.promptText(message, defaultValue);
+        if (response.trim() === '' || Number.isNaN(Number(response))) {
+          throw new Error('ValueError: could not convert string to float: ' + JSON.stringify(response));
+        }
+        return Number(response);
+      },
+      readVar(name, value) {
+        if (value === undefined) {
+          throw new Error("NameError: name '" + String(name) + "' is not defined");
+        }
+        return value;
+      },
+      inspectFunction(name, value) {
+        const defined = value !== undefined;
+        return {
+          name: String(name),
+          defined,
+          isFunction: typeof value === 'function',
+          valueType: defined ? __runtime.getValueType(value) : 'undefined',
+          parameterCount: typeof value === 'function' ? value.length : null,
+        };
+      },
+      async invokeFunction(name, value, args) {
+        const stdoutStart = __stdout.length;
+        const promptStart = __promptLog.length;
+        const info = __runtime.inspectFunction(name, value);
+        if (!info.isFunction) {
+          return {
+            called: false,
+            success: false,
+            returnValue: undefined,
+            returnType: 'undefined',
+            error: info.defined
+              ? String(name) + ' is defined, but it is ' + info.valueType + ' instead of a function'
+              : "NameError: name '" + String(name) + "' is not defined",
+            stdout: '',
+            prompts: [],
+          };
+        }
+        try {
+          const returnValue = await value(...(Array.isArray(args) ? args : []));
+          return {
+            called: true,
+            success: true,
+            returnValue,
+            returnType: __runtime.getValueType(returnValue),
+            error: null,
+            stdout: __stdout.slice(stdoutStart).join('\\n') + (__stdout.length > stdoutStart ? '\\n' : ''),
+            prompts: __promptLog.slice(promptStart).map((entry) => ({
+              message: entry.message,
+              response: entry.response,
+              cancelled: entry.cancelled,
+            })),
+          };
+        } catch (error) {
+          return {
+            called: true,
+            success: false,
+            returnValue: undefined,
+            returnType: 'undefined',
+            error: error instanceof Error ? error.message : String(error),
+            stdout: __stdout.slice(stdoutStart).join('\\n') + (__stdout.length > stdoutStart ? '\\n' : ''),
+            prompts: __promptLog.slice(promptStart).map((entry) => ({
+              message: entry.message,
+              response: entry.response,
+              cancelled: entry.cancelled,
+            })),
+          };
+        }
+      },
+      getValueType(value) {
+        if (Array.isArray(value)) return 'list';
+        if (typeof value === 'string') return 'string';
+        if (typeof value === 'number' && Number.isFinite(value)) {
+          return Number.isInteger(value) ? 'int' : 'float';
+        }
+        if (typeof value === 'number') return 'float';
+        if (value === null) return 'null';
+        return typeof value;
+      },
+    };
+
+    const __buildPromptDiagnostics = function() {
+      const usedProvidedInputCount = __promptLog.filter((entry) => entry.usedProvidedInput).length;
+      return {
+        configuredInputCount: __initialPromptInputs.length,
+        promptCallCount: __promptLog.length,
+        usedProvidedInputCount,
+        underflowCount: Math.max(0, __promptLog.length - usedProvidedInputCount),
+        unusedInputCount: Math.max(0, __initialPromptInputs.length - usedProvidedInputCount),
+      };
+    };
+
+    const __postResult = function(success, executionState, error) {
+      postMessage({
+        success,
+        stdout: __stdout.join('\\n') + (__stdout.length > 0 ? '\\n' : ''),
+        variables: executionState && executionState.variables && typeof executionState.variables === 'object' ? executionState.variables : {},
+        functions: executionState && executionState.functions && typeof executionState.functions === 'object' ? executionState.functions : {},
+        functionCalls: executionState && executionState.functionCalls && typeof executionState.functionCalls === 'object' ? executionState.functionCalls : {},
+        prompts: __promptLog.map((entry) => ({
+          message: entry.message,
+          response: entry.response,
+          cancelled: entry.cancelled,
+        })),
+        promptDiagnostics: __buildPromptDiagnostics(),
+        error,
+      });
+    };
+
+    (async function runProgram() {
+      try {
+        const __fn = new AsyncFunction('__runtime', __programSource);
+        const __executionState = await __fn(__runtime);
+        __postResult(true, __executionState && typeof __executionState === 'object' ? __executionState : {}, null);
+      } catch (error) {
+        __postResult(false, {}, error instanceof Error ? error.message : String(error));
+      }
+    })();
+  `;
+}
+
+function createScriptedInputProvider(promptInputs = []) {
+  const queue = [...promptInputs];
+  return async ({ defaultValue = '' } = {}) => {
+    const normalizedDefault = defaultValue == null ? '' : String(defaultValue);
+    const usedProvidedInput = queue.length > 0;
+    return {
+      response: usedProvidedInput ? String(queue.shift()) : normalizedDefault,
+      usedProvidedInput,
+      cancelled: false,
+    };
   };
-  globalThis.prompt = promptImpl;
-  promptOwner.prompt = promptImpl;
+}
 
+function createInteractiveInputProvider(requestInput) {
+  return async ({ message, defaultValue = '', inputType = 'text' } = {}) => {
+    const normalizedDefault = defaultValue == null ? '' : String(defaultValue);
+    if (typeof requestInput !== 'function') {
+      return {
+        response: normalizedDefault,
+        usedProvidedInput: false,
+        cancelled: false,
+      };
+    }
+
+    const response = await requestInput({
+      message: String(message ?? ''),
+      defaultValue: normalizedDefault,
+      inputType,
+    });
+
+    return {
+      response: response == null ? normalizedDefault : String(response),
+      usedProvidedInput: true,
+      cancelled: false,
+    };
+  };
+}
+
+function createExecutionContext({
+  promptInputCount = null,
+  inputProvider,
+  onStdout = null,
+  variableNames = [],
+  functionNames = [],
+  functionCalls = [],
+  isCancelled = null,
+} = {}) {
+  const stdout = [];
+  const promptLog = [];
+  const assertNotCancelled = () => {
+    if (typeof isCancelled === 'function' && isCancelled()) {
+      throw new Error(INTERACTIVE_RUN_CANCELLED_ERROR);
+    }
+  };
+
+  const runtime = {
+    async writeLine(...args) {
+      assertNotCancelled();
+      const line = args.map(String).join(' ');
+      stdout.push(line);
+      if (typeof onStdout === 'function') {
+        onStdout(line);
+      }
+      return line;
+    },
+    async promptText(message, defaultValue = '') {
+      assertNotCancelled();
+      const normalizedMessage = String(message ?? '');
+      const normalizedDefault = defaultValue == null ? '' : String(defaultValue);
+      const inputResult = typeof inputProvider === 'function'
+        ? await inputProvider({
+            message: normalizedMessage,
+            defaultValue: normalizedDefault,
+            inputType: 'text',
+          })
+        : {
+            response: normalizedDefault,
+            usedProvidedInput: false,
+            cancelled: false,
+          };
+      assertNotCancelled();
+
+      const response = inputResult?.response == null
+        ? normalizedDefault
+        : String(inputResult.response);
+
+      promptLog.push({
+        message: normalizedMessage,
+        response,
+        cancelled: inputResult?.cancelled === true,
+        usedProvidedInput: inputResult?.usedProvidedInput === true,
+      });
+
+      return response;
+    },
+    async promptNumber(message, defaultValue = '') {
+      const response = await runtime.promptText(message, defaultValue);
+      return coercePromptNumber(response);
+    },
+    readVar(name, value) {
+      if (value === undefined) {
+        throw new Error(`NameError: name '${String(name)}' is not defined`);
+      }
+      return value;
+    },
+    inspectFunction(name, value) {
+      const defined = value !== undefined;
+      return {
+        name: String(name),
+        defined,
+        isFunction: typeof value === 'function',
+        valueType: getValueType(value),
+        parameterCount: typeof value === 'function' ? value.length : null,
+      };
+    },
+    async invokeFunction(name, value, args) {
+      const stdoutStart = stdout.length;
+      const promptStart = promptLog.length;
+      const info = runtime.inspectFunction(name, value);
+      if (!info.isFunction) {
+        return {
+          called: false,
+          success: false,
+          returnValue: undefined,
+          returnType: 'undefined',
+          error: info.defined
+            ? `${String(name)} is defined, but it is ${info.valueType} instead of a function`
+            : `NameError: name '${String(name)}' is not defined`,
+          stdout: '',
+          prompts: [],
+        };
+      }
+      try {
+        const returnValue = await value(...(Array.isArray(args) ? args : []));
+        return {
+          called: true,
+          success: true,
+          returnValue,
+          returnType: getValueType(returnValue),
+          error: null,
+          stdout: stdout.slice(stdoutStart).join('\n') + (stdout.length > stdoutStart ? '\n' : ''),
+          prompts: promptLog.slice(promptStart).map((entry) => ({
+            message: entry.message,
+            response: entry.response,
+            cancelled: entry.cancelled,
+          })),
+        };
+      } catch (error) {
+        return {
+          called: true,
+          success: false,
+          returnValue: undefined,
+          returnType: 'undefined',
+          error: error instanceof Error ? error.message : String(error),
+          stdout: stdout.slice(stdoutStart).join('\n') + (stdout.length > stdoutStart ? '\n' : ''),
+          prompts: promptLog.slice(promptStart).map((entry) => ({
+            message: entry.message,
+            response: entry.response,
+            cancelled: entry.cancelled,
+          })),
+        };
+      }
+    },
+  };
+
+  return {
+    stdout,
+    promptLog,
+    promptInputCount,
+    runtime,
+    variableNames,
+    functionNames,
+    functionCalls,
+  };
+}
+
+async function executeProgramWithContext(code, executionContext) {
   try {
-    new Function(code)();
-    const variables = readVariablesFromCode(code, variableNames, promptInputs);
-    console.log = origLog;
-    globalThis.prompt = origPrompt;
-    promptOwner.prompt = origWindowPrompt;
-    return {
+    const captureSource = buildExecutionCaptureSource({
+      variableNames: executionContext.variableNames || [],
+      functionNames: executionContext.functionNames || [],
+      functionCalls: executionContext.functionCalls || [],
+    });
+    const programSource = buildExecutableProgramSource(code, captureSource);
+    const executionState = await new ASYNC_FUNCTION('__runtime', programSource)(executionContext.runtime);
+    return buildExecutionResult(executionContext, {
       success: true,
-      stdout: stdout.join('\n') + (stdout.length > 0 ? '\n' : ''),
-      variables,
-      prompts: promptLog,
-      promptDiagnostics: createPromptDiagnostics(
-        promptInputs.length,
-        promptLog.length,
-        promptLog.filter((entry) => entry.usedProvidedInput).length,
-      ),
+      cancelled: false,
+      executionState: isObjectLike(executionState) ? executionState : {},
       error: null,
-    };
-  } catch (err) {
-    console.log = origLog;
-    globalThis.prompt = origPrompt;
-    promptOwner.prompt = origWindowPrompt;
-    return {
+    });
+  } catch (error) {
+    return buildExecutionResult(executionContext, {
       success: false,
-      stdout: stdout.join('\n') + (stdout.length > 0 ? '\n' : ''),
-      variables: {},
-      prompts: promptLog,
-      promptDiagnostics: createPromptDiagnostics(
-        promptInputs.length,
-        promptLog.length,
-        promptLog.filter((entry) => entry.usedProvidedInput).length,
-      ),
-      error: err.toString(),
-    };
+      cancelled: isCancellationError(error),
+      executionState: {},
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
+}
+
+function buildExecutionResult(executionContext, { success, cancelled = false, executionState, error }) {
+  const usedProvidedInputCount = executionContext.promptLog
+    .filter((entry) => entry.usedProvidedInput)
+    .length;
+
+  return {
+    success,
+    cancelled,
+    stdout: executionContext.stdout.join('\n') + (executionContext.stdout.length > 0 ? '\n' : ''),
+    variables: isObjectLike(executionState?.variables) ? executionState.variables : {},
+    functions: isObjectLike(executionState?.functions) ? executionState.functions : {},
+    functionCalls: isObjectLike(executionState?.functionCalls) ? executionState.functionCalls : {},
+    prompts: executionContext.promptLog.map((entry) => ({
+      message: entry.message,
+      response: entry.response,
+      cancelled: entry.cancelled,
+    })),
+    promptDiagnostics: executionContext.promptInputCount == null
+      ? null
+      : createPromptDiagnostics(
+          executionContext.promptInputCount,
+          executionContext.promptLog.length,
+          usedProvidedInputCount,
+        ),
+    error,
+  };
+}
+
+function isCancellationError(error) {
+  return (error instanceof Error ? error.message : String(error)) === INTERACTIVE_RUN_CANCELLED_ERROR;
+}
+
+function coercePromptNumber(value) {
+  const normalizedValue = String(value ?? '');
+  if (normalizedValue.trim() === '') {
+    throw new Error(`ValueError: could not convert string to float: ${JSON.stringify(normalizedValue)}`);
+  }
+
+  const numericValue = Number(normalizedValue);
+  if (Number.isNaN(numericValue)) {
+    throw new Error(`ValueError: could not convert string to float: ${JSON.stringify(normalizedValue)}`);
+  }
+
+  return numericValue;
+}
+
+function isObjectLike(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
 function assertStdout(tc, executionResult) {
@@ -405,12 +717,49 @@ function assertStdout(tc, executionResult) {
     };
   }
 
+  const stdoutExecutionContext = getStdoutExecutionContext(tc);
+  let actualStdout = executionResult.stdout;
+  let actualPrompts = executionResult.prompts;
+
+  if (stdoutExecutionContext.scope === 'function') {
+    const callKey = getFunctionCallKey(
+      stdoutExecutionContext.function_name,
+      stdoutExecutionContext.arguments,
+    );
+    const callResult = executionResult.functionCalls?.[callKey];
+
+    if (!callResult) {
+      return {
+        id: tc.id,
+        passed: false,
+        points,
+        score: 0,
+        feedback: tc.feedback_on_fail || `Function "${stdoutExecutionContext.function_name}" could not be called.`,
+        detail: `The configured call to ${formatFunctionCall(stdoutExecutionContext.function_name, stdoutExecutionContext.arguments)} did not run.`,
+      };
+    }
+
+    if (!callResult.success) {
+      return {
+        id: tc.id,
+        passed: false,
+        points,
+        score: 0,
+        feedback: tc.feedback_on_fail || `Function "${stdoutExecutionContext.function_name}" could not be called.`,
+        detail: `Calling ${formatFunctionCall(stdoutExecutionContext.function_name, stdoutExecutionContext.arguments)} failed: ${callResult.error}`,
+      };
+    }
+
+    actualStdout = callResult.stdout;
+    actualPrompts = callResult.prompts;
+  }
+
   const assertions = [];
   const outputAssertion = getStdoutOutputAssertion(tc);
   if (outputAssertion.enabled) {
     assertions.push(evaluateRuntimeTextAssertion({
       assertion: outputAssertion,
-      actual: executionResult.stdout,
+      actual: actualStdout,
       label: 'Output',
       defaultSuccessMessage: 'Output matches!',
       defaultFailureMessage: 'Expected output did not match.',
@@ -421,8 +770,8 @@ function assertStdout(tc, executionResult) {
   if (promptAssertion.enabled) {
     assertions.push(evaluateRuntimeTextAssertion({
       assertion: promptAssertion,
-      actual: getPromptTranscript(executionResult.prompts),
-      actualItems: getPromptMessages(executionResult.prompts),
+      actual: getPromptTranscript(actualPrompts),
+      actualItems: getPromptMessages(actualPrompts),
       label: 'Prompt text',
       defaultSuccessMessage: 'Prompt text matches!',
       defaultFailureMessage: 'Expected prompt text did not match.',
@@ -586,7 +935,204 @@ function assertVariableState(tc, executionResult) {
   };
 }
 
+function assertFunctionState(tc, executionResult) {
+  const points = getTestPoints(tc);
+
+  if (!executionResult.success) {
+    return {
+      id: tc.id,
+      passed: false,
+      points,
+      score: 0,
+      feedback: tc.feedback_on_fail || `Code error: ${executionResult.error}`,
+      detail: executionResult.error,
+    };
+  }
+
+  const functionInfo = executionResult.functions?.[tc.function_name];
+  if (!functionInfo?.defined) {
+    return {
+      id: tc.id,
+      passed: false,
+      points,
+      score: 0,
+      feedback: tc.feedback_on_fail || `Function "${tc.function_name}" was not found after execution.`,
+      detail: `Available functions: ${Object.keys(executionResult.functions || {}).filter((name) => executionResult.functions?.[name]?.isFunction).join(', ') || 'none'}`,
+    };
+  }
+
+  if (!functionInfo.isFunction) {
+    return {
+      id: tc.id,
+      passed: false,
+      points,
+      score: 0,
+      feedback: tc.feedback_on_fail || `Function "${tc.function_name}" is not callable.`,
+      detail: `"${tc.function_name}" is defined, but it is ${withIndefiniteArticle(functionInfo.valueType)} instead of a function.`,
+    };
+  }
+
+  const checks = [];
+  const returnAssertion = getFunctionReturnAssertion(tc);
+
+  if (normalizeFunctionParameterCountEnabled(tc)) {
+    const expectedParameterCount = Math.max(0, Math.trunc(Number(tc.parameter_count) || 0));
+    const parameterCountPassed = functionInfo.parameterCount === expectedParameterCount;
+    checks.push({
+      passed: parameterCountPassed,
+      detail: parameterCountPassed
+        ? `Function declares ${expectedParameterCount} parameter(s)`
+        : `Expected ${tc.function_name} to declare ${expectedParameterCount} parameter(s), got ${functionInfo.parameterCount}`,
+    });
+  }
+
+  if (returnAssertion.enabled) {
+    const callKey = getFunctionCallKey(tc.function_name, returnAssertion.arguments);
+    const callResult = executionResult.functionCalls?.[callKey];
+    const returnCheck = evaluateFunctionReturnAssertion(tc.function_name, returnAssertion, callResult);
+    checks.push(returnCheck);
+  }
+
+  const failedChecks = checks.filter((check) => !check.passed);
+  const passed = failedChecks.length === 0;
+  const onlyFailedCheck = failedChecks.length === 1 ? failedChecks[0] : null;
+  const returnAssertionUsed = returnAssertion.enabled;
+
+  return {
+    id: tc.id,
+    passed,
+    points,
+    score: passed ? points : 0,
+    feedback: passed
+      ? tc.feedback_on_pass
+        || (returnAssertionUsed && returnAssertion.success_message
+          ? returnAssertion.success_message
+          : buildFunctionSuccessFeedback(tc))
+      : onlyFailedCheck?.customFailureMessage
+        || tc.feedback_on_fail
+        || buildFunctionFailureFeedback(tc, onlyFailedCheck),
+    detail: passed ? null : failedChecks.map((check) => check.detail).join('\n\n'),
+    student_detail: passed ? null : buildCombinedStudentDetail({
+      note: failedChecks.map((check) => check.studentNote).filter(Boolean).join('\n\n') || null,
+      sections: failedChecks.flatMap((check) => Array.isArray(check.studentSections) ? check.studentSections : []),
+    }),
+  };
+}
+
 const COERCION_FAILED = Symbol('coercion-failed');
+
+function evaluateFunctionReturnAssertion(functionName, returnAssertion, callResult) {
+  if (!callResult) {
+    return {
+      passed: false,
+      detail: `The configured call to ${formatFunctionCall(functionName, returnAssertion.arguments)} did not run.`,
+      customFailureMessage: returnAssertion.failure_message || '',
+      studentNote: null,
+      studentSections: [],
+    };
+  }
+
+  if (!callResult.success) {
+    return {
+      passed: false,
+      detail: `Calling ${formatFunctionCall(functionName, returnAssertion.arguments)} failed: ${callResult.error}`,
+      customFailureMessage: returnAssertion.failure_message || '',
+      studentNote: null,
+      studentSections: [],
+    };
+  }
+
+  const actual = callResult.returnValue;
+  const actualType = getValueType(actual);
+  const expectedType = normalizeVariableType(returnAssertion.expected_type);
+  const checks = [];
+  const studentHints = [];
+
+  if (expectedType !== 'any') {
+    const typePassed = actualType === expectedType;
+    checks.push({
+      passed: typePassed,
+      detail: typePassed
+        ? `Return type matches expected ${expectedType}`
+        : `Expected ${formatFunctionCall(functionName, returnAssertion.arguments)} to return ${withIndefiniteArticle(expectedType)}, got ${withIndefiniteArticle(actualType)}`,
+    });
+  }
+
+  if (returnAssertion.value_assertion_enabled) {
+    const expectedValue = returnAssertion.expected_value;
+    const comparison = returnAssertion.comparison || 'equals';
+    const valuePassed = compareVariableValues(actual, expectedValue, comparison);
+    checks.push({
+      passed: valuePassed,
+      detail: valuePassed
+        ? `Return value comparison passed (${comparison})`
+        : `Expected ${formatFunctionCall(functionName, returnAssertion.arguments)} ${comparison} ${formatDebugValue(expectedValue)}, got ${formatDebugValue(actual)}`,
+    });
+
+    if (
+      !valuePassed
+      && returnAssertion.show_coerced_value_hint
+      && expectedType !== 'any'
+      && expectedType !== 'list'
+    ) {
+      const coercedActual = coerceValueForType(actual, expectedType);
+      if (coercedActual !== COERCION_FAILED && compareVariableValues(coercedActual, expectedValue, comparison)) {
+        studentHints.push(
+          `The returned value is correct, but not the correct type. ${capitalizeIdentifier(functionName)} should return ${withIndefiniteArticle(expectedType)}, not ${withIndefiniteArticle(actualType)}.`,
+        );
+      }
+    } else if (
+      valuePassed
+      && returnAssertion.show_coerced_value_hint
+      && expectedType !== 'any'
+      && expectedType !== 'list'
+      && actualType !== expectedType
+    ) {
+      const coercedActual = coerceValueForType(actual, expectedType);
+      if (coercedActual !== COERCION_FAILED && compareVariableValues(coercedActual, expectedValue, comparison)) {
+        studentHints.push(
+          `The returned value is correct, but not the correct type. ${capitalizeIdentifier(functionName)} should return ${withIndefiniteArticle(expectedType)}, not ${withIndefiniteArticle(actualType)}.`,
+        );
+      }
+    }
+  }
+
+  const listAssertions = getVariableListAssertions(returnAssertion);
+  if (hasAnyListChecks(listAssertions)) {
+    if (!Array.isArray(actual)) {
+      checks.push({
+        passed: false,
+        detail: `Expected ${formatFunctionCall(functionName, returnAssertion.arguments)} to return a list before applying list assertions, got ${actualType}`,
+      });
+    } else {
+      checks.push(...evaluateListAssertions('returned value', actual, listAssertions, returnAssertion.show_coerced_value_hint, studentHints));
+    }
+  }
+
+  const failedChecks = checks.filter((check) => !check.passed);
+  const passed = failedChecks.length === 0;
+  const studentDetail = !passed
+    ? createStudentValueDetail({
+      showExpected: returnAssertion.show_expected,
+      showActual: returnAssertion.show_actual,
+      expectedValue: returnAssertion.expected_value,
+      actualValue: actual,
+      label: 'return value',
+      note: studentHints.join('\n\n') || null,
+    })
+    : null;
+
+  return {
+    passed,
+    detail: passed
+      ? `Return assertion passed for ${formatFunctionCall(functionName, returnAssertion.arguments)}`
+      : failedChecks.map((check) => check.detail).join('\n'),
+    customSuccessMessage: returnAssertion.success_message || '',
+    customFailureMessage: returnAssertion.failure_message || '',
+    studentNote: studentDetail?.note || null,
+    studentSections: Array.isArray(studentDetail?.sections) ? studentDetail.sections : [],
+  };
+}
 
 function hasAnyListChecks(listAssertions) {
   return listAssertions.length_enabled
@@ -791,7 +1337,7 @@ function serializeComparableValue(value) {
 }
 
 function formatDebugValue(value) {
-  return JSON.stringify(value);
+  return value === undefined ? 'undefined' : JSON.stringify(value);
 }
 
 function withIndefiniteArticle(typeName) {
@@ -805,6 +1351,9 @@ function capitalizeIdentifier(name) {
 }
 
 function formatStudentFacingValue(value) {
+  if (value === undefined) {
+    return 'undefined';
+  }
   if (typeof value === 'string') {
     return value;
   }
@@ -828,6 +1377,18 @@ function getTestPoints(testCase) {
   return Number.isFinite(numericValue) ? Math.max(0, Math.trunc(numericValue)) : 0;
 }
 
+function buildExecutionCaptureSource({ variableNames = [], functionNames = [], functionCalls = [] } = {}) {
+  const variableCaptureSource = buildVariableCaptureSource(variableNames);
+  const functionCaptureSource = buildFunctionCaptureSource(functionNames);
+  const functionCallCaptureSource = buildFunctionCallCaptureSource(functionCalls);
+
+  return `{
+    variables: ${variableCaptureSource},
+    functions: ${functionCaptureSource},
+    functionCalls: ${functionCallCaptureSource}
+  }`;
+}
+
 function buildVariableCaptureSource(variableNames) {
   const safeVariableNames = [...new Set(variableNames.filter(isSafeIdentifier))];
   if (safeVariableNames.length === 0) return '{}';
@@ -835,33 +1396,84 @@ function buildVariableCaptureSource(variableNames) {
   return `{${safeVariableNames.map((name) => `${JSON.stringify(name)}: typeof ${name} !== "undefined" ? ${name} : undefined`).join(',')}}`;
 }
 
-function readVariablesFromCode(code, variableNames, promptInputs = []) {
-  const variableCaptureSource = buildVariableCaptureSource(variableNames);
-  if (variableCaptureSource === '{}') return {};
+function buildFunctionCaptureSource(functionNames) {
+  const safeFunctionNames = [...new Set(functionNames.filter(isSafeIdentifier))];
+  if (safeFunctionNames.length === 0) return '{}';
 
-  const promptOwner = globalThis.window || globalThis;
-  const origPrompt = globalThis.prompt;
-  const origWindowPrompt = promptOwner.prompt;
-  const remainingPromptInputs = [...promptInputs];
-  const promptImpl = (_message, defaultValue = '') => {
-    const fallback = defaultValue == null ? '' : String(defaultValue);
-    return remainingPromptInputs.length > 0 ? String(remainingPromptInputs.shift()) : fallback;
-  };
+  return `{${safeFunctionNames.map((name) => {
+    const safeName = JSON.stringify(name);
+    return `${safeName}: __runtime.inspectFunction(${safeName}, typeof ${name} !== "undefined" ? ${name} : undefined)`;
+  }).join(',')}}`;
+}
 
-  try {
-    globalThis.prompt = promptImpl;
-    promptOwner.prompt = promptImpl;
-    return new Function(`${code}\nreturn ${variableCaptureSource};`)();
-  } catch {
-    return {};
-  } finally {
-    globalThis.prompt = origPrompt;
-    promptOwner.prompt = origWindowPrompt;
-  }
+function buildFunctionCallCaptureSource(functionCalls) {
+  const normalizedCalls = Array.isArray(functionCalls)
+    ? functionCalls.filter((call) => isObjectLike(call) && isSafeIdentifier(call.name))
+    : [];
+  if (normalizedCalls.length === 0) return '{}';
+
+  return `{${normalizedCalls.map((call) => `${JSON.stringify(call.key)}: await __runtime.invokeFunction(${JSON.stringify(call.name)}, typeof ${call.name} !== "undefined" ? ${call.name} : undefined, ${JSON.stringify(call.arguments)})`).join(',')}}`;
 }
 
 function isSafeIdentifier(name) {
   return typeof name === 'string' && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(name);
+}
+
+function createFunctionCallPlan(functionName, args = []) {
+  return {
+    key: getFunctionCallKey(functionName, args),
+    name: functionName,
+    arguments: Array.isArray(args) ? args : [],
+  };
+}
+
+function getFunctionExecutionPlanKey(testCase) {
+  const returnAssertion = getFunctionReturnAssertion(testCase);
+  return JSON.stringify({
+    type: 'function_state',
+    functionName: testCase.function_name || '',
+    parameterCountEnabled: normalizeFunctionParameterCountEnabled(testCase),
+    parameterCount: Math.max(0, Math.trunc(Number(testCase.parameter_count) || 0)),
+    returnAssertion: returnAssertion.enabled
+      ? {
+        arguments: returnAssertion.arguments,
+        expected_type: returnAssertion.expected_type,
+        value_assertion_enabled: returnAssertion.value_assertion_enabled,
+        expected_value: returnAssertion.expected_value,
+        comparison: returnAssertion.comparison,
+        list_assertions: returnAssertion.list_assertions,
+      }
+      : null,
+  });
+}
+
+function getStdoutExecutionPlanKey(testCase) {
+  const executionContext = getStdoutExecutionContext(testCase);
+  return JSON.stringify({
+    type: 'stdout_match',
+    promptInputs: getPromptInputs(testCase),
+    execution_context: executionContext.scope === 'function'
+      ? {
+        scope: executionContext.scope,
+        function_name: executionContext.function_name,
+        arguments: executionContext.arguments,
+      }
+      : { scope: executionContext.scope },
+  });
+}
+
+function getFunctionCallKey(functionName, args = []) {
+  return JSON.stringify({
+    functionName: String(functionName ?? ''),
+    arguments: Array.isArray(args) ? args : [],
+  });
+}
+
+function formatFunctionCall(functionName, args = []) {
+  const formattedArgs = (Array.isArray(args) ? args : [])
+    .map((arg) => formatDebugValue(arg))
+    .join(', ');
+  return `${String(functionName ?? '')}(${formattedArgs})`;
 }
 
 function formatCount(count, noun) {
@@ -985,6 +1597,34 @@ function buildStdoutFailureFeedback(testCase, failedAssertions) {
   return 'Prompt text and output did not match.';
 }
 
+function buildFunctionSuccessFeedback(testCase) {
+  const functionName = String(testCase?.function_name ?? '');
+  if (normalizeFunctionParameterCountEnabled(testCase) && getFunctionReturnAssertion(testCase).enabled) {
+    return `Function "${functionName}" has the correct definition and return value!`;
+  }
+  if (normalizeFunctionParameterCountEnabled(testCase)) {
+    return `Function "${functionName}" exists and has the correct parameter count!`;
+  }
+  if (getFunctionReturnAssertion(testCase).enabled) {
+    return `Function "${functionName}" returns the expected value!`;
+  }
+  return `Function "${functionName}" exists and is callable!`;
+}
+
+function buildFunctionFailureFeedback(testCase, failedCheck = null) {
+  const functionName = String(testCase?.function_name ?? '');
+  if (failedCheck?.detail?.startsWith(`Calling ${functionName}(`)) {
+    return `Calling function "${functionName}" caused an error.`;
+  }
+  if (failedCheck?.detail?.includes('parameter(s)')) {
+    return `Function "${functionName}" does not have the expected number of parameters.`;
+  }
+  if (getFunctionReturnAssertion(testCase).enabled) {
+    return `Function "${functionName}" did not meet the expected return checks.`;
+  }
+  return `Function "${functionName}" did not meet the expected checks.`;
+}
+
 function buildStudentFacingAssertionDetail(failedAssertions) {
   const sections = failedAssertions
     .map((assertion) => assertion.studentDetail)
@@ -1009,6 +1649,43 @@ function createStudentAssertionDetail(label, assertion, actual) {
     });
   }
   return sections.length > 0 ? { sections } : null;
+}
+
+function createStudentValueDetail({
+  showExpected = false,
+  showActual = false,
+  expectedValue = undefined,
+  actualValue = undefined,
+  label = 'value',
+  note = null,
+} = {}) {
+  const sections = [];
+  if (showExpected && expectedValue !== undefined) {
+    sections.push({
+      title: `Expected ${label}`,
+      value: formatStudentFacingValue(expectedValue),
+    });
+  }
+  if (showActual) {
+    sections.push({
+      title: `Actual ${label}`,
+      value: formatStudentFacingValue(actualValue),
+    });
+  }
+  return buildCombinedStudentDetail({ note, sections });
+}
+
+function buildCombinedStudentDetail({ note = null, sections = [] } = {}) {
+  const normalizedSections = Array.isArray(sections) ? sections.filter(Boolean) : [];
+  const normalizedNote = typeof note === 'string' && note.trim() ? note : null;
+
+  if (!normalizedNote && normalizedSections.length === 0) {
+    return null;
+  }
+  return {
+    ...(normalizedNote ? { note: normalizedNote } : {}),
+    ...(normalizedSections.length > 0 ? { sections: normalizedSections } : {}),
+  };
 }
 
 function getPromptTranscript(prompts) {

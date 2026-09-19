@@ -6,16 +6,19 @@
 
 import * as scorm from './scorm-wrapper.js';
 import { initWorkspace, generateCode, getWorkspace, Blockly } from './blockly-engine.js';
-import { executeInteractiveRun, runTests } from './test-runner.js';
+import { executeInteractiveRun, INTERACTIVE_RUN_CANCELLED_ERROR, runTests } from './test-runner.js';
 import { initHintEngine, onTestFail, requestHint, setBlocklyRef } from './hint-engine.js';
 import { renderInlineMarkdown } from '../../shared/inline-markdown.js';
 
 let config = null;
 let attemptCount = 0;
+let interactiveConsoleState = null;
+let activeInteractiveRun = null;
+let isResultsModalCloseLocked = false;
 const PREVIEW_CONFIG_GLOBAL = '__BLOCKLY_SCORM_PREVIEW_CONFIG__';
 const PREVIEW_MODE_GLOBAL = '__BLOCKLY_SCORM_PREVIEW_MODE__';
 const OUTPUT_PLACEHOLDER_HTML =
-  '<p class="output-placeholder">Run your code or check your solution to see output, prompts, and feedback here.</p>';
+  '<p class="output-placeholder">Run your code or check your solution to open the console, prompts, and feedback here.</p>';
 
 async function init() {
   // 1. Initialize SCORM
@@ -155,13 +158,58 @@ async function handleRun() {
   setExecutionButtonState({ running: true });
 
   try {
-    const execution = executeInteractiveRun(generateCode());
-    setResultsModalTitle('Run output');
-    renderRunOutput(execution);
+    dismissActiveBlocklyEditing();
+    const code = generateCode();
+    setResultsModalTitle('Run console');
+    renderInteractiveConsole();
     openResultsModal();
+    await waitForNextPaint();
+
+    const runControl = {
+      cancelled: false,
+      cancel() {
+        if (this.cancelled) return;
+        this.cancelled = true;
+        interactiveConsoleState?.pendingRequest?.cancel?.();
+      },
+    };
+    activeInteractiveRun = runControl;
+
+    const execution = await executeInteractiveRun(code, {
+      onStdout: appendConsoleOutput,
+      requestInput: requestConsoleInput,
+      isCancelled: () => runControl.cancelled,
+    });
+
+    finalizeInteractiveConsole(execution);
+    showStatus(
+      execution.cancelled
+        ? 'Program run cancelled.'
+        : execution.success
+        ? 'Program finished.'
+        : 'Program stopped because of a runtime error.',
+      execution.cancelled || execution.success ? 'info' : 'error',
+    );
   } catch (err) {
-    showStatus(`Error: ${err.message}`, 'error');
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    finalizeInteractiveConsole({
+      success: false,
+      cancelled: errorMessage === INTERACTIVE_RUN_CANCELLED_ERROR,
+      stdout: '',
+      variables: {},
+      prompts: [],
+      promptDiagnostics: null,
+      error: errorMessage,
+    });
+    showStatus(
+      errorMessage === INTERACTIVE_RUN_CANCELLED_ERROR
+        ? 'Program run cancelled.'
+        : `Error: ${errorMessage}`,
+      errorMessage === INTERACTIVE_RUN_CANCELLED_ERROR ? 'info' : 'error',
+    );
   } finally {
+    activeInteractiveRun = null;
+    setResultsModalClosable(true);
     setExecutionButtonState();
   }
 }
@@ -170,6 +218,7 @@ async function handleCheck() {
   setExecutionButtonState({ checking: true });
 
   try {
+    dismissActiveBlocklyEditing();
     const code = generateCode();
     const workspace = getWorkspace();
     const {
@@ -246,12 +295,14 @@ function handleCodeToggle() {
 function renderRunOutput(execution) {
   const panel = document.getElementById('output-panel');
   if (!panel) return;
-  panel.innerHTML = buildExecutionOutputHtml(execution);
+  panel.innerHTML = buildStaticRunOutputHtml(execution);
 }
 
 function renderCheckOutput(results, totalScore, maxScore, hasBlockedTests = false) {
   const panel = document.getElementById('output-panel');
   if (!panel) return;
+  interactiveConsoleState = null;
+  setResultsModalClosable(true);
 
   if (!results.length) {
     panel.innerHTML = '<p class="output-empty">No automated checks are configured for this activity.</p>';
@@ -274,6 +325,7 @@ function setupResultsModal() {
     }
   });
   setResultsModalTitle('Run output');
+  setResultsModalClosable(true);
   setOutputPlaceholder();
 }
 
@@ -290,6 +342,10 @@ function closeResultsModal() {
   const modal = document.getElementById('results-modal');
   if (!modal) return;
 
+  if (activeInteractiveRun) {
+    activeInteractiveRun.cancel();
+  }
+
   modal.classList.add('hidden');
   modal.setAttribute('aria-hidden', 'true');
   document.body.classList.remove('modal-open');
@@ -299,6 +355,8 @@ function closeResultsModal() {
 function setOutputPlaceholder() {
   const outputPanel = document.getElementById('output-panel');
   if (!outputPanel) return;
+  interactiveConsoleState = null;
+  setResultsModalClosable(true);
   outputPanel.innerHTML = OUTPUT_PLACEHOLDER_HTML;
 }
 
@@ -333,6 +391,8 @@ function showStatus(message, type) {
 function setExecutionButtonState({ running = false, checking = false } = {}) {
   const runBtn = document.getElementById('btn-run');
   const checkBtn = document.getElementById('btn-check');
+  const resetBtn = document.getElementById('btn-reset');
+  const codeToggle = document.getElementById('btn-code-toggle');
   const busy = running || checking;
 
   if (runBtn) {
@@ -344,6 +404,14 @@ function setExecutionButtonState({ running = false, checking = false } = {}) {
     checkBtn.disabled = busy;
     checkBtn.textContent = checking ? 'Checking...' : '✓ Check';
   }
+
+  if (resetBtn) {
+    resetBtn.disabled = busy;
+  }
+
+  if (codeToggle) {
+    codeToggle.disabled = busy;
+  }
 }
 
 function setResultsModalTitle(title) {
@@ -353,7 +421,162 @@ function setResultsModalTitle(title) {
   }
 }
 
-function buildExecutionOutputHtml(execution) {
+function renderInteractiveConsole() {
+  const panel = document.getElementById('output-panel');
+  if (!panel) return;
+
+  panel.innerHTML = `
+    <div class="console-shell">
+      <div class="console-transcript" data-console-transcript aria-live="polite" aria-label="Program console output"></div>
+      <form class="console-input-bar hidden" data-console-form>
+        <label class="console-input-label" for="console-stdin">Input</label>
+        <input id="console-stdin" class="console-input-field" type="text" autocomplete="off" spellcheck="false">
+        <button type="submit" class="btn btn-primary console-submit-button">Enter</button>
+      </form>
+    </div>
+  `;
+
+  interactiveConsoleState = {
+    transcriptEl: panel.querySelector('[data-console-transcript]'),
+    formEl: panel.querySelector('[data-console-form]'),
+    inputEl: panel.querySelector('#console-stdin'),
+    pendingRequest: null,
+    hasEntries: false,
+    isRunning: true,
+  };
+}
+
+function dismissActiveBlocklyEditing() {
+  document.activeElement?.blur?.();
+  Blockly.hideChaff?.();
+}
+
+function appendConsoleOutput(line) {
+  if (!interactiveConsoleState) return;
+  appendConsoleEntry('output', line);
+}
+
+async function requestConsoleInput({ message, defaultValue = '', inputType = 'text' } = {}) {
+  if (!interactiveConsoleState?.transcriptEl || !interactiveConsoleState?.formEl || !interactiveConsoleState?.inputEl) {
+    return defaultValue;
+  }
+
+  const promptText = String(message ?? '');
+  const promptEntry = appendConsoleEntry('prompt', promptText || 'Input requested', {
+    awaitingInput: true,
+    badge: inputType === 'number' ? 'number' : 'input',
+  });
+  const promptValueEl = promptEntry.querySelector('.console-entry-value');
+  const cursor = document.createElement('span');
+  cursor.className = 'console-cursor';
+  cursor.setAttribute('aria-hidden', 'true');
+  const promptSuffix = document.createElement('span');
+  promptSuffix.className = 'console-prompt-suffix';
+  const separator = promptText && !/\s$/.test(promptText) ? ' ' : '';
+  promptSuffix.append(separator, cursor);
+  promptValueEl.append(promptSuffix);
+
+  interactiveConsoleState.formEl.classList.remove('hidden');
+  interactiveConsoleState.formEl.dataset.inputType = inputType;
+  interactiveConsoleState.inputEl.value = defaultValue == null ? '' : String(defaultValue);
+  interactiveConsoleState.inputEl.placeholder = inputType === 'number'
+    ? 'Enter a number'
+    : 'Enter your response';
+  interactiveConsoleState.inputEl.focus();
+  interactiveConsoleState.inputEl.select();
+  scrollConsoleToBottom();
+
+  return new Promise((resolve, reject) => {
+    const submitHandler = (event) => {
+      event.preventDefault();
+      const response = interactiveConsoleState.inputEl.value;
+      promptEntry.classList.remove('is-awaiting-input');
+      promptSuffix.replaceWith(document.createTextNode(`${separator}${response}`));
+      interactiveConsoleState.formEl.classList.add('hidden');
+      interactiveConsoleState.formEl.removeEventListener('submit', submitHandler);
+      interactiveConsoleState.pendingRequest = null;
+      resolve(response);
+    };
+
+    interactiveConsoleState.pendingRequest = {
+      cleanup() {
+        promptEntry.classList.remove('is-awaiting-input');
+        promptSuffix.replaceWith(document.createTextNode(`${separator}${interactiveConsoleState.inputEl.value}`));
+        interactiveConsoleState.formEl.classList.add('hidden');
+      },
+      cancel() {
+        promptEntry.classList.remove('is-awaiting-input');
+        promptSuffix.replaceWith(document.createTextNode(''));
+        interactiveConsoleState.formEl.classList.add('hidden');
+        interactiveConsoleState.formEl.removeEventListener('submit', submitHandler);
+        interactiveConsoleState.pendingRequest = null;
+        reject(new Error(INTERACTIVE_RUN_CANCELLED_ERROR));
+      },
+    };
+    interactiveConsoleState.formEl.addEventListener('submit', submitHandler, { once: true });
+  });
+}
+
+function appendConsoleEntry(type, text, { awaitingInput = false, badge } = {}) {
+  if (!interactiveConsoleState?.transcriptEl) return null;
+
+  interactiveConsoleState.hasEntries = true;
+
+  const row = document.createElement('div');
+  row.className = `console-entry console-entry-${type}`;
+  if (awaitingInput) {
+    row.classList.add('is-awaiting-input');
+  }
+
+  const entryBadge = document.createElement('span');
+  entryBadge.className = 'console-entry-badge';
+  entryBadge.textContent = badge || getConsoleBadge(type);
+
+  const entryValue = document.createElement('span');
+  entryValue.className = 'console-entry-value';
+  entryValue.textContent = text == null || text === '' ? ' ' : String(text);
+
+  row.append(entryBadge, entryValue);
+  interactiveConsoleState.transcriptEl.appendChild(row);
+  scrollConsoleToBottom();
+  return row;
+}
+
+function finalizeInteractiveConsole(execution) {
+  if (!interactiveConsoleState) {
+    renderRunOutput(execution);
+    return;
+  }
+
+  const { transcriptEl } = interactiveConsoleState;
+  interactiveConsoleState.isRunning = false;
+
+  if (interactiveConsoleState.pendingRequest) {
+    interactiveConsoleState.pendingRequest.cleanup?.();
+    interactiveConsoleState.pendingRequest = null;
+  }
+
+  transcriptEl?.querySelectorAll('.console-entry.is-awaiting-input').forEach((entry) => {
+    entry.classList.remove('is-awaiting-input');
+    entry.querySelector('.console-cursor')?.remove();
+  });
+
+  if (!interactiveConsoleState.hasEntries && execution.success) {
+    appendConsoleEntry('status', 'Program finished with no output.', { badge: 'done' });
+  }
+
+  if (execution.cancelled) {
+    appendConsoleEntry('status', 'Run cancelled.', { badge: 'done' });
+  } else if (!execution.success) {
+    appendConsoleEntry('error', execution.error || 'Unknown error', { badge: 'error' });
+  } else {
+    appendConsoleEntry('status', 'Program finished.', { badge: 'done' });
+  }
+
+  scrollConsoleToBottom();
+}
+
+function buildStaticRunOutputHtml(execution) {
   let html = '<div class="output-section">';
   html += '<h3>Program Output</h3>';
 
@@ -381,6 +604,46 @@ function buildExecutionOutputHtml(execution) {
 
   html += '</div>';
   return html;
+}
+
+function getConsoleBadge(type) {
+  switch (type) {
+    case 'prompt':
+      return 'in?';
+    case 'input':
+      return 'you';
+    case 'error':
+      return 'err';
+    case 'status':
+      return 'sys';
+    case 'output':
+    default:
+      return 'out';
+  }
+}
+
+function scrollConsoleToBottom() {
+  if (!interactiveConsoleState?.transcriptEl) return;
+  interactiveConsoleState.transcriptEl.scrollTop = interactiveConsoleState.transcriptEl.scrollHeight;
+}
+
+function setResultsModalClosable(closable) {
+  isResultsModalCloseLocked = !closable;
+
+  const closeButton = document.getElementById('btn-close-results-modal');
+  const backdrop = document.getElementById('results-modal-backdrop');
+  if (closeButton) {
+    closeButton.disabled = !closable;
+  }
+  if (backdrop) {
+    backdrop.disabled = !closable;
+  }
+}
+
+function waitForNextPaint() {
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
 }
 
 function buildCheckResultsHtml(results, totalScore, maxScore, hasBlockedTests = false) {
@@ -420,13 +683,20 @@ function renderStudentDetailHtml(studentDetail) {
     return `<div class="result-detail-note formatted-text">${renderInlineMarkdown(studentDetail)}</div>`;
   }
 
-  if (studentDetail && Array.isArray(studentDetail.sections)) {
-    return studentDetail.sections.map((section) => `
+  if (studentDetail && typeof studentDetail === 'object') {
+    let html = '';
+    if (typeof studentDetail.note === 'string' && studentDetail.note.trim()) {
+      html += `<div class="result-detail-note formatted-text">${renderInlineMarkdown(studentDetail.note)}</div>`;
+    }
+    if (Array.isArray(studentDetail.sections)) {
+      html += studentDetail.sections.map((section) => `
       <div class="result-detail-section">
         <div class="result-detail-title">${escapeHtml(section.title || '')}</div>
         <pre class="result-detail-value">${escapeHtml(section.value || '')}</pre>
       </div>
-    `).join('');
+      `).join('');
+    }
+    return html;
   }
 
   return '';

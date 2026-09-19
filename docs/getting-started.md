@@ -68,6 +68,7 @@ You'll see the builder interface with 6 tabs:
    - **stdout_match** — Check console output
    - **block_structure** — Check workspace block arrangement
    - **variable_state** — Check variable values after execution
+   - **function_state** — Check that a function exists, has the right parameters, and returns the expected value
 3. Set the **points** for the test
 4. Write **feedback** shown when the test fails
 
@@ -114,7 +115,7 @@ Open the activity as a student would. You should see:
 - **Centre**: Blockly workspace with your configured toolbox
 - **Results modal**: Run output or check results when opened
 
-Click **▶ Run Code** to execute the learner program, or **✓ Check** to run the automated tests.
+Click **▶ Run Code** to execute the learner program in the interactive console, or **✓ Check** to run the automated tests.
 
 ## Available Commands
 

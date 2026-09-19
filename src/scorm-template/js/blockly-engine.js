@@ -6,7 +6,10 @@
 
 import * as Blockly from 'blockly';
 import { javascriptGenerator } from 'blockly/javascript';
-import { buildCategoryToolboxContents } from '../../shared/blockly-toolbox.js';
+import {
+  buildCategoryToolboxContents,
+  registerDynamicToolboxCategoryCallbacks,
+} from '../../shared/blockly-toolbox.js';
 import { configureJavascriptGenerator } from '../../shared/blockly-code-generator.js';
 
 let workspace = null;
@@ -49,6 +52,7 @@ export function initWorkspace(container, blocklySetup, uiSettings) {
   }
 
   workspace = Blockly.inject(container, options);
+  registerDynamicToolboxCategoryCallbacks(workspace, Blockly, blocklySetup.toolbox.categories);
 
   // Load starter blocks if provided
   if (blocklySetup.starting_blocks) {

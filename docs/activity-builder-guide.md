@@ -222,9 +222,12 @@ Define how student work is evaluated. See [Test Types](test-types.md) for full d
    - **stdout_match** — Check `console.log` output
    - **block_structure** — Check workspace block arrangement
    - **variable_state** — Check variable values after code execution
+   - **function_state** — Check that a function exists, has the right parameters, and returns the expected value
 3. Set the **points** awarded for passing the test
-4. Configure type-specific fields, including `prompt_inputs` for execution-based tests when the program uses the input block. Missing or unused configured inputs fail the test explicitly
+4. Configure type-specific fields. `stdout_match` and `variable_state` support `prompt_inputs` when the program uses the input block, and output checks can also switch the execution scope from the whole main program to a specific function call. Missing or unused configured inputs fail the test explicitly only for the test types that expose that setting
 5. Write **feedback** shown when the test fails
+
+If the student toolbox includes function call blocks, the **Functions** category populates named call blocks automatically from the saved **Workspace** procedure definitions.
 
 ### Points System
 
@@ -254,7 +257,7 @@ Run the full student runtime with your current config before exporting.
 
 - The real Blockly workspace and restricted student toolbox
 - Starter blocks saved from the **Workspace** tab
-- Live program execution via **▶ Run Code**, including real `prompt()` dialogs and printed output
+- Live program execution via **▶ Run Code**, including the in-app interactive console for printed output and typed input
 - Automated test execution and scoring via **✓ Check**
 - Manual and automatic hints via **💡 Get Hint** and failed checks
 - Generated JavaScript via **{ } Show Code**
@@ -263,7 +266,7 @@ Click **Reload Preview** to restart the student runtime with your latest config.
 
 > **Note**: The preview uses the same client-side runtime as the exported package, but it still runs without an LMS connection. SCORM score reporting is simulated locally.
 
-When you click **▶ Run Code**, the activity executes the learner program normally with real browser prompt dialogs. When you click **✓ Check**, it runs the configured automated checks and scores the result using each test case's `prompt_inputs`.
+When you click **▶ Run Code**, the activity opens the learner's interactive console so stdout appears as the program runs and any prompt/input requests are answered inline. When you click **✓ Check**, it runs the configured automated checks and scores the result using each test case's configured runtime settings, including `prompt_inputs` where that test type supports them.
 Run and check results open in a modal so the Blockly workspace keeps the full horizontal space until needed.
 
 ---

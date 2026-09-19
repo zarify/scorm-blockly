@@ -31,7 +31,7 @@ npm run build
    - **Workspace**: Design the starter blocks (what students see when they open the activity)
    - **Toolbox**: Seed the student toolbox from the saved Workspace blocks, then rename categories, adjust colours, and choose which blocks students see
    - **Hints**: Create progressive hints triggered by workspace state or test failures, including visual block-pattern matchers
-   - **Tests**: Define test cases (output matching, block structure checks, variable state), including visual block-pattern matchers
+   - **Tests**: Define test cases (output matching, block structure checks, variable state, and function definition/call checks), including visual block-pattern matchers
    - **Preview**: Run the real student experience inside the builder to test blocks, hints, tests, and generated code before exporting
 4. Click **Export JSON** to download the config, or **Export SCORM** to get a `.zip`
 5. Upload the SCORM `.zip` to Moodle as a SCORM activity
@@ -71,7 +71,7 @@ Each activity is defined by a single JSON config file (`activity_config.json`) w
 - **ui_settings** — Theme, show/hide toggles, max attempts
 - **blockly_setup** — Toolbox categories/blocks, starter blocks, max blocks
 - **hints** — Configurable hints triggered by workspace conditions or test results
-- **evaluation** — Test cases with three assertion types
+- **evaluation** — Test cases with four assertion types
 
 ### Test Types
 
@@ -80,8 +80,11 @@ Each activity is defined by a single JSON config file (`activity_config.json`) w
 | `stdout_match` | Console output, prompt text, or both match expected text | "Prompt should be `Knock knock`" |
 | `block_structure` | Workspace has required block patterns | "Must use a for-loop" |
 | `variable_state` | Variable or list has the expected type/value after execution | "`count` should equal 3" |
+| `function_state` | Function exists, has the expected parameter count, and/or returns the expected value | "`add_numbers(2, 3)` should return `5`" |
 
-Tests award integer **points** rather than percentages, and execution-based tests can provide ordered `prompt_inputs` for Blockly programs that use the input/prompt block. Prompt input matching is strict: missing or unused configured inputs fail the test explicitly, including prompt-only `stdout_match` checks.
+Tests award integer **points** rather than percentages. `stdout_match` and `variable_state` can provide ordered `prompt_inputs` for Blockly programs that use the input/prompt block, and prompt input matching stays strict there: missing or unused configured inputs fail the test explicitly. `stdout_match` can also scope prompt/output assertions to a specific function call after top-level setup runs. `function_state` ignores prompt-count mismatches and simply continues with default empty prompt responses when prompts occur.
+
+When the student toolbox includes Blockly procedure call blocks, the **Functions** category now populates named call blocks automatically from the saved starter-workspace procedure definitions.
 
 ### Hint Triggers
 

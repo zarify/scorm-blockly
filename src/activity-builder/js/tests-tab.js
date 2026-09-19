@@ -20,11 +20,14 @@ import { renderPatternBuilder } from './pattern-builder.js';
 import { WORKSPACE_CONNECTEDNESS_MODE_OPTIONS, normalizeWorkspaceConnectednessMode } from '../../shared/workspace-connectedness.js';
 import {
   formatPromptInputs,
+  getFunctionReturnAssertion,
   getPromptInputs,
+  getStdoutExecutionContext,
   getVariableListAssertions,
   getStdoutOutputAssertion,
   getStdoutPromptAssertion,
   getTestPoints,
+  normalizeFunctionParameterCountEnabled,
   normalizeVariableType,
   normalizeVariableValueAssertionEnabled,
   parsePromptInputs,
@@ -40,6 +43,7 @@ const TEST_TYPES = [
   { value: 'stdout_match', label: 'Output/prompt text check' },
   { value: 'block_structure', label: 'Block structure check' },
   { value: 'variable_state', label: 'Variable/list state check' },
+  { value: 'function_state', label: 'Function definition/call check' },
 ];
 
 const MATCH_MODES = [
@@ -126,6 +130,9 @@ function addTest() {
       show_actual: false,
       success_message: '',
       failure_message: '',
+    },
+    execution_context: {
+      scope: 'main',
     },
     points: 1,
     feedback_on_pass: '',
@@ -279,13 +286,18 @@ function renderTestEditor() {
   }
 
   const tc = tests[selectedTestIndex];
+  const usesAssertionLevelMessages = tc.type === 'stdout_match' || tc.type === 'function_state';
   const successHelp = tc.type === 'stdout_match'
     ? '<small>Shown when the whole test passes. For prompt/output checks, this overrides assertion-specific success messages.</small>'
-    : '';
-  const failureLabel = tc.type === 'stdout_match' ? 'Fallback feedback on fail' : 'Feedback on fail';
+    : tc.type === 'function_state'
+      ? '<small>Shown when the whole test passes. For function return checks, this overrides the return assertion success message.</small>'
+      : '';
+  const failureLabel = usesAssertionLevelMessages ? 'Fallback feedback on fail' : 'Feedback on fail';
   const failureHelp = tc.type === 'stdout_match'
     ? '<small>Shown only when the enabled prompt/output checks do not provide their own failure message.</small>'
-    : '';
+    : tc.type === 'function_state'
+      ? '<small>Shown when the failure is not covered by a return assertion failure message, or when multiple function checks fail.</small>'
+      : '';
 
   let html = `
     <div class="form-group">
@@ -362,6 +374,9 @@ function renderTestEditor() {
         success_message: '',
         failure_message: '',
       };
+      newTc.execution_context = {
+        scope: 'main',
+      };
     } else if (v === 'block_structure') {
       newTc.conditions = { type: 'workspace_empty' };
     } else if (v === 'variable_state') {
@@ -384,6 +399,34 @@ function renderTestEditor() {
         item_type_mode: 'all',
         expected_item_types: [],
         index_checks: [],
+      };
+    } else if (v === 'function_state') {
+      newTc.function_name = '';
+      newTc.parameter_count_enabled = false;
+      newTc.parameter_count = 0;
+      newTc.return_assertion = {
+        enabled: false,
+        arguments: [],
+        expected_type: 'any',
+        value_assertion_enabled: false,
+        comparison: 'equals',
+        show_coerced_value_hint: false,
+        show_expected: false,
+        show_actual: false,
+        success_message: '',
+        failure_message: '',
+        list_assertions: {
+          length_enabled: false,
+          length_value: 0,
+          length_comparison: 'equals',
+          values_enabled: false,
+          values_match_mode: 'exact_order',
+          expected_values: [],
+          item_types_enabled: false,
+          item_type_mode: 'all',
+          expected_item_types: [],
+          index_checks: [],
+        },
       };
     }
     Object.assign(tc, newTc);
@@ -416,12 +459,13 @@ function renderTestTypeFields(tc) {
     case 'stdout_match': {
       tc.output_assertion = getStdoutOutputAssertion(tc, { defaultEnabled: true });
       tc.prompt_assertion = getStdoutPromptAssertion(tc);
+      tc.execution_context = getStdoutExecutionContext(tc);
 
       html = `
         <div class="form-group">
           <label>Prompt inputs</label>
           <textarea id="test-prompt-inputs" rows="3" placeholder="One prompt() response per line">${escapeHtml(formatPromptInputs(getPromptInputs(tc)))}</textarea>
-          <small>Returned to <code>window.prompt()</code> in order. Use the option below to decide whether extra or missing prompt() calls should fail the test.</small>
+          <small>Returned to successive learner input requests in order. Use the option below to decide whether extra or missing input steps should fail the test.</small>
         </div>
         <div class="form-group">
           <label class="checkbox-label">
@@ -430,6 +474,25 @@ function renderTestTypeFields(tc) {
           </label>
           <small>Turn this off when you want to test prompt/output text in isolation without depending on the student program's full prompt structure.</small>
         </div>
+        <div class="form-group">
+          <label>Execution scope</label>
+          <select id="test-execution-scope">
+            <option value="main" ${tc.execution_context.scope === 'main' ? 'selected' : ''}>Main program</option>
+            <option value="function" ${tc.execution_context.scope === 'function' ? 'selected' : ''}>Specific function call</option>
+          </select>
+          <small>Choose whether to check all prompt/output from the top-level run, or only what happens during one function call after setup finishes.</small>
+        </div>
+        ${tc.execution_context.scope === 'function' ? `
+        <div class="form-group">
+          <label>Function name</label>
+          <input type="text" id="test-execution-function-name" value="${escapeAttr(tc.execution_context.function_name || '')}" placeholder="e.g. greet">
+        </div>
+        <div class="form-group">
+          <label>Function arguments</label>
+          <textarea id="test-execution-function-arguments" rows="4" placeholder='One argument per line. Use JSON for numbers, strings, booleans, lists, or objects.'>${escapeHtml(formatStructuredValueList(tc.execution_context.arguments || []))}</textarea>
+          <small>Only prompt/output produced during this function call is captured for the assertions below.</small>
+        </div>
+        ` : ''}
         ${renderRuntimeTextAssertionEditor({
           prefix: 'test-output',
           title: 'Console output',
@@ -446,7 +509,7 @@ function renderTestTypeFields(tc) {
           assertion: tc.prompt_assertion,
           expectedLabel: 'Expected prompt text',
           expectedPlaceholder: 'One prompt message per line',
-          helpText: 'Matches the text passed to <code>window.prompt()</code> in order, joined with newlines. A single prompt like <code>prompt("Knock knock")</code> is entered exactly as <code>Knock knock</code>.',
+          helpText: 'Matches the prompt text shown in the learner console in order, joined with newlines. A single prompt like <code>prompt("Knock knock")</code> is entered exactly as <code>Knock knock</code>.',
           matchAnyItemLabel: 'Match any single prompt instead of the combined prompt transcript',
           showExpectedLabel: 'Show expected prompt text when this check fails',
           showActualLabel: 'Show actual prompt text when this check fails',
@@ -475,7 +538,7 @@ function renderTestTypeFields(tc) {
         <div class="form-group">
           <label>Prompt inputs</label>
           <textarea id="test-prompt-inputs" rows="3" placeholder="One prompt() response per line">${escapeHtml(formatPromptInputs(getPromptInputs(tc)))}</textarea>
-          <small>Returned to <code>window.prompt()</code> in order before variable assertions run. Use the option below to decide whether extra or missing prompt() calls should fail the test.</small>
+          <small>Returned to successive learner input requests in order before variable assertions run. Use the option below to decide whether extra or missing input steps should fail the test.</small>
         </div>
         <div class="form-group">
           <label class="checkbox-label">
@@ -571,6 +634,26 @@ function renderTestTypeFields(tc) {
         `}
       `;
       break;
+
+    case 'function_state':
+      tc.return_assertion = getFunctionReturnAssertion(tc);
+
+      html = `
+        <div class="form-group">
+          <label>Function name</label>
+          <input type="text" id="test-function-name" value="${escapeAttr(tc.function_name || '')}" placeholder="e.g. add_numbers">
+          <small>The test always checks that this name resolves to a callable function after the program runs. Any prompt() calls are ignored for prompt-count matching in this test type.</small>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="test-function-parameter-count-enabled" ${normalizeFunctionParameterCountEnabled(tc) ? 'checked' : ''}>
+            Verify the number of parameters in the definition
+          </label>
+          <input type="number" id="test-function-parameter-count" min="0" value="${Math.max(0, parseInt(tc.parameter_count, 10) || 0)}" ${normalizeFunctionParameterCountEnabled(tc) ? '' : 'disabled'} style="margin-top:8px">
+        </div>
+        ${renderFunctionReturnAssertionEditor('test-function-return', tc.return_assertion)}
+      `;
+      break;
   }
 
   container.innerHTML = html;
@@ -580,6 +663,23 @@ function renderTestTypeFields(tc) {
     case 'stdout_match':
       bindField('test-prompt-inputs', (v) => { tc.prompt_inputs = parsePromptInputs(v); });
       bindCheckedField('test-strict-prompt-inputs', (checked) => { tc.strict_prompt_inputs = checked; });
+      bindField('test-execution-scope', (value) => {
+        tc.execution_context.scope = value;
+        if (value !== 'function') {
+          delete tc.execution_context.function_name;
+          delete tc.execution_context.arguments;
+        } else {
+          tc.execution_context.function_name = tc.execution_context.function_name || '';
+          tc.execution_context.arguments = Array.isArray(tc.execution_context.arguments) ? tc.execution_context.arguments : [];
+        }
+        renderTestEditor();
+      });
+      bindField('test-execution-function-name', (value) => {
+        tc.execution_context.function_name = value;
+      });
+      bindParsedField('test-execution-function-arguments', parseStructuredValueList, (values) => {
+        tc.execution_context.arguments = values;
+      });
       bindRuntimeTextAssertionFields('test-output', tc.output_assertion);
       bindRuntimeTextAssertionFields('test-prompt', tc.prompt_assertion);
       break;
@@ -656,6 +756,20 @@ function renderTestTypeFields(tc) {
           tc.list_assertions.index_checks = checks;
         });
       }
+      break;
+
+    case 'function_state':
+      bindField('test-function-name', (v) => { tc.function_name = v; });
+      bindCheckedField('test-function-parameter-count-enabled', (checked) => {
+        tc.parameter_count_enabled = checked;
+        toggleDisabledState('test-function-parameter-count', !checked);
+      });
+      bindField('test-function-parameter-count', (v) => {
+        tc.parameter_count = Math.max(0, parseInt(v, 10) || 0);
+      });
+      bindFunctionReturnAssertionFields('test-function-return', tc.return_assertion, () => {
+        renderTestEditor();
+      });
       break;
   }
 }
@@ -968,6 +1082,206 @@ function bindRuntimeTextAssertionFields(prefix, assertion) {
   bindCheckedField(`${prefix}-show-actual`, (checked) => { assertion.show_actual = checked; });
   bindField(`${prefix}-success-message`, (value) => { assertion.success_message = value; });
   bindField(`${prefix}-failure-message`, (value) => { assertion.failure_message = value; });
+}
+
+function renderFunctionReturnAssertionEditor(prefix, assertion) {
+  const expectedType = normalizeVariableType(assertion.expected_type);
+  const scalarExpectedValue = formatScalarExpectedValue(assertion.expected_value);
+  const comparison = assertion.comparison || 'equals';
+  const listAssertions = getVariableListAssertions(assertion);
+
+  return `
+    <div class="form-group">
+      <label class="checkbox-label">
+        <input type="checkbox" id="${prefix}-enabled" ${assertion.enabled ? 'checked' : ''}>
+        Call the function and verify its return value/type
+      </label>
+    </div>
+    <fieldset id="${prefix}-fields" ${assertion.enabled ? '' : 'disabled'} style="border:1px solid #ddd;border-radius:6px;padding:12px;margin:0 0 12px">
+      <legend style="padding:0 6px;font-weight:600">Return assertion</legend>
+      <div class="form-group">
+        <label>Arguments</label>
+        <textarea id="${prefix}-arguments" rows="4" placeholder='One argument per line. Use JSON for numbers, strings, booleans, lists, or objects.'>${escapeHtml(formatStructuredValueList(assertion.arguments))}</textarea>
+        <small>Examples: <code>1</code>, <code>"cow"</code>, <code>[1,2]</code>. Plain unquoted text is treated as a string.</small>
+      </div>
+      <div class="form-group">
+        <label>Expected return type</label>
+        <select id="${prefix}-type">
+          ${VARIABLE_TYPES.map((option) => `<option value="${option.value}" ${expectedType === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
+        </select>
+      </div>
+      ${expectedType !== 'list' ? `
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="${prefix}-value-enabled" ${assertion.value_assertion_enabled ? 'checked' : ''}>
+          Verify the return value
+        </label>
+      </div>
+      <fieldset id="${prefix}-value-fields" ${assertion.value_assertion_enabled ? '' : 'disabled'} style="border:1px solid #ddd;border-radius:6px;padding:12px;margin:0 0 12px">
+        <legend style="padding:0 6px;font-weight:600">Scalar return-value assertion</legend>
+        <div class="form-group">
+          <label>Expected value</label>
+          <input type="text" id="${prefix}-expected" value="${escapeAttr(scalarExpectedValue)}" placeholder="${escapeAttr(getScalarValuePlaceholder(expectedType, comparison))}">
+          <small>${getScalarValueHelpText(expectedType, comparison)}</small>
+        </div>
+        <div class="form-group">
+          <label>Comparison</label>
+          <select id="${prefix}-comparison">
+            ${COMPARISONS.map((c) => `<option value="${c.value}" ${comparison === c.value ? 'selected' : ''}>${c.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="checkbox-label">
+            <input type="checkbox" id="${prefix}-coercion-hint" ${assertion.show_coerced_value_hint ? 'checked' : ''}>
+            Show a hint when the coerced return value matches but the type is wrong
+          </label>
+        </div>
+      </fieldset>
+      ` : `
+      <div class="form-group">
+        <small>List return values can be checked by length, list contents, item types, and specific index checks. Leave every list assertion disabled if you only want to assert that the function returns a list.</small>
+      </div>
+      ${renderListAssertionEditor(prefix, listAssertions)}
+      `}
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="${prefix}-show-expected" ${assertion.show_expected ? 'checked' : ''}>
+          Show expected return value when this check fails
+        </label>
+        <label class="checkbox-label">
+          <input type="checkbox" id="${prefix}-show-actual" ${assertion.show_actual ? 'checked' : ''}>
+          Show actual return value when this check fails
+        </label>
+      </div>
+      <div class="form-group">
+        <label>Success message</label>
+        <textarea id="${prefix}-success-message" rows="2" placeholder="Optional message shown when the return assertion passes">${escapeHtml(assertion.success_message || '')}</textarea>
+      </div>
+      <div class="form-group">
+        <label>Failure message</label>
+        <textarea id="${prefix}-failure-message" rows="2" placeholder="Optional message shown when the return assertion fails">${escapeHtml(assertion.failure_message || '')}</textarea>
+      </div>
+    </fieldset>
+  `;
+}
+
+function renderListAssertionEditor(prefix, listAssertions) {
+  return `
+    <fieldset style="border:1px solid #ddd;border-radius:6px;padding:12px;margin:0 0 12px">
+      <legend style="padding:0 6px;font-weight:600">List assertions</legend>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="${prefix}-list-length-enabled" ${listAssertions.length_enabled ? 'checked' : ''}>
+          Verify list length
+        </label>
+        <div style="display:flex;gap:8px;margin-top:8px">
+          <select id="${prefix}-list-length-comparison" ${listAssertions.length_enabled ? '' : 'disabled'} style="flex:1">
+            ${LIST_LENGTH_COMPARISONS.map((option) => `<option value="${option.value}" ${listAssertions.length_comparison === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
+          </select>
+          <input type="number" id="${prefix}-list-length-value" min="0" value="${listAssertions.length_value}" ${listAssertions.length_enabled ? '' : 'disabled'} style="flex:1">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="${prefix}-list-values-enabled" ${listAssertions.values_enabled ? 'checked' : ''}>
+          Verify list values
+        </label>
+        <select id="${prefix}-list-values-mode" ${listAssertions.values_enabled ? '' : 'disabled'} style="margin-top:8px">
+          ${LIST_VALUE_MATCH_MODES.map((option) => `<option value="${option.value}" ${listAssertions.values_match_mode === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
+        </select>
+        <textarea id="${prefix}-list-values" rows="4" placeholder='One expected list item per line. Use JSON for numbers, strings, booleans, nested lists, or objects.' ${listAssertions.values_enabled ? '' : 'disabled'}>${escapeHtml(formatStructuredValueList(listAssertions.expected_values))}</textarea>
+        <small>Examples: <code>1</code>, <code>"cow"</code>, <code>[1,2]</code>. Plain unquoted text is treated as a string.</small>
+      </div>
+      <div class="form-group">
+        <label class="checkbox-label">
+          <input type="checkbox" id="${prefix}-list-item-types-enabled" ${listAssertions.item_types_enabled ? 'checked' : ''}>
+          Verify item types
+        </label>
+        <select id="${prefix}-list-item-types-mode" ${listAssertions.item_types_enabled ? '' : 'disabled'} style="margin-top:8px">
+          ${LIST_ITEM_TYPE_MODES.map((option) => `<option value="${option.value}" ${listAssertions.item_type_mode === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
+        </select>
+        <input type="text" id="${prefix}-list-item-types" value="${escapeAttr(formatTypeList(listAssertions.expected_item_types))}" placeholder="int, string" ${listAssertions.item_types_enabled ? '' : 'disabled'}>
+        <small>Allowed item types: int, float, string, list.</small>
+      </div>
+      <div class="form-group">
+        <label>Specific index checks</label>
+        <textarea id="${prefix}-list-index-checks" rows="4" placeholder='One JSON object per line, e.g. {"index":0,"expected_value":"cow"} or {"index":1,"expected_type":"int"}'>${escapeHtml(formatIndexChecks(listAssertions.index_checks))}</textarea>
+        <small>Use this to assert values or types at specific list indexes. Leave blank to skip index-based checks.</small>
+      </div>
+    </fieldset>
+  `;
+}
+
+function bindFunctionReturnAssertionFields(prefix, assertion, rerender) {
+  bindCheckedField(`${prefix}-enabled`, (checked) => {
+    assertion.enabled = checked;
+    const fieldset = document.getElementById(`${prefix}-fields`);
+    if (fieldset) fieldset.disabled = !checked;
+  });
+  bindParsedField(`${prefix}-arguments`, parseStructuredValueList, (values) => {
+    assertion.arguments = values;
+  });
+  bindField(`${prefix}-type`, (value) => {
+    assertion.expected_type = value;
+    if (value === 'list') {
+      assertion.value_assertion_enabled = false;
+    }
+    rerender();
+  });
+  if (normalizeVariableType(assertion.expected_type) !== 'list') {
+    bindCheckedField(`${prefix}-value-enabled`, (checked) => {
+      assertion.value_assertion_enabled = checked;
+      const fieldset = document.getElementById(`${prefix}-value-fields`);
+      if (fieldset) fieldset.disabled = !checked;
+    });
+    bindField(`${prefix}-expected`, (value) => {
+      assertion.expected_value = parseScalarExpectedValue(value, assertion.expected_type, assertion.comparison);
+    });
+    bindField(`${prefix}-comparison`, (value) => {
+      assertion.comparison = value;
+      rerender();
+    });
+    bindCheckedField(`${prefix}-coercion-hint`, (checked) => {
+      assertion.show_coerced_value_hint = checked;
+    });
+  } else {
+    bindListAssertionFields(prefix, assertion.list_assertions);
+  }
+  bindCheckedField(`${prefix}-show-expected`, (checked) => { assertion.show_expected = checked; });
+  bindCheckedField(`${prefix}-show-actual`, (checked) => { assertion.show_actual = checked; });
+  bindField(`${prefix}-success-message`, (value) => { assertion.success_message = value; });
+  bindField(`${prefix}-failure-message`, (value) => { assertion.failure_message = value; });
+}
+
+function bindListAssertionFields(prefix, listAssertions) {
+  bindCheckedField(`${prefix}-list-length-enabled`, (checked) => {
+    listAssertions.length_enabled = checked;
+    toggleDisabledState(`${prefix}-list-length-comparison`, !checked);
+    toggleDisabledState(`${prefix}-list-length-value`, !checked);
+  });
+  bindField(`${prefix}-list-length-comparison`, (value) => { listAssertions.length_comparison = value; });
+  bindField(`${prefix}-list-length-value`, (value) => { listAssertions.length_value = Math.max(0, parseInt(value, 10) || 0); });
+  bindCheckedField(`${prefix}-list-values-enabled`, (checked) => {
+    listAssertions.values_enabled = checked;
+    toggleDisabledState(`${prefix}-list-values-mode`, !checked);
+    toggleDisabledState(`${prefix}-list-values`, !checked);
+  });
+  bindField(`${prefix}-list-values-mode`, (value) => { listAssertions.values_match_mode = value; });
+  bindParsedField(`${prefix}-list-values`, parseStructuredValueList, (values) => {
+    listAssertions.expected_values = values;
+  });
+  bindCheckedField(`${prefix}-list-item-types-enabled`, (checked) => {
+    listAssertions.item_types_enabled = checked;
+    toggleDisabledState(`${prefix}-list-item-types-mode`, !checked);
+    toggleDisabledState(`${prefix}-list-item-types`, !checked);
+  });
+  bindField(`${prefix}-list-item-types-mode`, (value) => { listAssertions.item_type_mode = value; });
+  bindParsedField(`${prefix}-list-item-types`, parseTypeList, (types) => {
+    listAssertions.expected_item_types = types;
+  });
+  bindParsedField(`${prefix}-list-index-checks`, parseIndexChecks, (checks) => {
+    listAssertions.index_checks = checks;
+  });
 }
 
 function updateWeightIndicator() {

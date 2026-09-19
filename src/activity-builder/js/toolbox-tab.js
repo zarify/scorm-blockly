@@ -5,10 +5,11 @@
 import { getConfig, notifyChange, onConfigChange, showToast, Blockly } from './builder-app.js';
 import {
   buildCategoryToolboxContents,
- createSeededToolboxCategories,
- DEFAULT_TOOLBOX_BLOCK_LIBRARY,
- getBlockTypesFromWorkspaceState,
- getDefaultCategoryColour,
+  createSeededToolboxCategories,
+  DEFAULT_TOOLBOX_BLOCK_LIBRARY,
+  getBlockTypesFromWorkspaceState,
+  getDefaultCategoryColour,
+  registerDynamicToolboxCategoryCallbacks,
 } from '../../shared/blockly-toolbox.js';
 
 let selectedCategoryIndex = -1;
@@ -305,6 +306,10 @@ function updatePreview() {
       trashcan: false,
       sounds: false,
     });
+    registerDynamicToolboxCategoryCallbacks(previewWorkspace, Blockly, categories);
+    if (getConfig().blockly_setup?.starting_blocks) {
+      Blockly.serialization.workspaces.load(getConfig().blockly_setup.starting_blocks, previewWorkspace);
+    }
   } catch (err) {
     console.warn('[ToolboxTab] Preview failed:', err.message);
   }
