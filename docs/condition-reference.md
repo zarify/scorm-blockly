@@ -17,6 +17,7 @@ Conditions are used in two places:
 | [`block_pattern`](#block_pattern) | Visual Blockly pattern with wildcard blocks and scoped field constraints | `workspace_state`, `field_constraints?` |
 | [`block_field_value`](#block_field_value) | Block field matches a value or regex pattern | `block_type`, `field_name`, `expected_value`, `match_mode?`, `regex_flags?` |
 | [`block_count`](#block_count) | Count of a block type is within range | `block_type`, `min`, `max` |
+| [`workspace_connectedness`](#workspace_connectedness) | Enforce one connected program root or forbid loose value blocks | `mode` |
 | [`workspace_empty`](#workspace_empty) | Workspace has no blocks | — |
 | [`all`](#all) | AND — all sub-conditions must pass | `conditions` |
 | [`any`](#any) | OR — at least one sub-condition must pass | `conditions` |
@@ -429,6 +430,43 @@ Passes if the count of blocks of the specified type falls within the `[min, max]
   "min": 3
 }
 ```
+
+---
+
+### `workspace_connectedness`
+
+Passes when the workspace satisfies one of two global connectedness rules.
+
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `mode` | string | ✅ | `"all_connected"` or `"all_active"` |
+
+#### Modes
+
+- **`all_connected`** — the workspace must have **at most one top-level block root**. This rejects orphan statement stacks and loose value blocks.
+- **`all_active`** — every top-level root must be an **active** block. This still allows multiple executable/definition roots, but rejects disconnected value-style blocks such as loose numbers, strings, list literals, or variable-get blocks.
+
+This is useful when Blockly would otherwise ignore or separately run stray blocks that you want to treat as incorrect.
+
+**Examples:**
+
+```json
+// Require one fully connected program with no orphan roots
+{
+  "type": "workspace_connectedness",
+  "mode": "all_connected"
+}
+
+// Allow multiple top-level executable/definition roots, but no loose value blocks
+{
+  "type": "workspace_connectedness",
+  "mode": "all_active"
+}
+```
+
+**When not to use `all_connected`:**
+
+Avoid `all_connected` for activities that intentionally need multiple top-level roots, such as separate procedure definitions or event-style entry blocks. In those cases, `all_active` is usually the better fit.
 
 ---
 

@@ -21,6 +21,7 @@ import {
   normalizeFieldValueMatchMode,
   VALID_FIELD_VALUE_MATCH_MODES as SHARED_VALID_FIELD_VALUE_MATCH_MODES,
 } from './field-value-matching.js';
+import { VALID_WORKSPACE_CONNECTEDNESS_MODES } from './workspace-connectedness.js';
 
 export const VALID_TEST_TYPES = ['stdout_match', 'block_structure', 'variable_state'];
 export const VALID_STDOUT_MATCH_MODES = VALID_RUNTIME_TEXT_MATCH_MODES;
@@ -33,7 +34,8 @@ export const VALID_HINT_DISPLAY_MODES = ['triggered', 'checklist'];
 export const VALID_FIELD_VALUE_MATCH_MODES = SHARED_VALID_FIELD_VALUE_MATCH_MODES;
 export const VALID_CONDITION_TYPES = [
   'block_exists', 'block_missing', 'block_connected', 'block_nested',
-  'block_field_value', 'block_count', 'workspace_empty', 'all', 'any', 'none', BLOCK_PATTERN_TYPE,
+  'block_field_value', 'block_count', 'workspace_connectedness',
+  'workspace_empty', 'all', 'any', 'none', BLOCK_PATTERN_TYPE,
 ];
 export const VALID_HINT_EVENTS = ['workspace_change', 'test_fail', 'manual', 'timed'];
 
@@ -102,6 +104,15 @@ export function validateConfig(config) {
       errors.push({
         path: 'evaluation.feedback_on_all_pass',
         message: 'Must be a string',
+      });
+    }
+    if (
+      config.evaluation.require_previous_test_pass !== undefined
+      && typeof config.evaluation.require_previous_test_pass !== 'boolean'
+    ) {
+      errors.push({
+        path: 'evaluation.require_previous_test_pass',
+        message: 'Must be a boolean',
       });
     }
     if (Array.isArray(config.evaluation.test_cases)) {
@@ -604,6 +615,17 @@ function validateCondition(condition, path, errors) {
     validateBlockPatternCondition(condition, path, errors);
   } else if (condition.type === 'block_count') {
     validateRequiredString(condition, 'block_type', errors, path);
+  } else if (condition.type === 'workspace_connectedness') {
+    validateRequiredString(condition, 'mode', errors, path);
+    if (
+      condition.mode !== undefined
+      && !VALID_WORKSPACE_CONNECTEDNESS_MODES.includes(condition.mode)
+    ) {
+      errors.push({
+        path: `${path}.mode`,
+        message: `Must be one of: ${VALID_WORKSPACE_CONNECTEDNESS_MODES.join(', ')}`,
+      });
+    }
   } else if (['all', 'any', 'none'].includes(condition.type)) {
     if (!Array.isArray(condition.conditions) || condition.conditions.length === 0) {
       errors.push({ path: `${path}.conditions`, message: 'Composite condition requires a non-empty conditions array' });

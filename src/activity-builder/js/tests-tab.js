@@ -17,6 +17,7 @@ import {
   getSuggestedConditionBlockTypes,
 } from './condition-suggestions.js';
 import { renderPatternBuilder } from './pattern-builder.js';
+import { WORKSPACE_CONNECTEDNESS_MODE_OPTIONS, normalizeWorkspaceConnectednessMode } from '../../shared/workspace-connectedness.js';
 import {
   formatPromptInputs,
   getPromptInputs,
@@ -666,6 +667,7 @@ function renderConditionBuilder(container, condition, onChange) {
     { value: 'block_missing', label: 'Block missing' },
     { value: BLOCK_PATTERN_TYPE, label: 'Visual block pattern' },
     { value: 'block_count', label: 'Block count' },
+    { value: 'workspace_connectedness', label: 'Block connectedness' },
     { value: 'workspace_empty', label: 'Workspace empty' },
     { value: 'all', label: 'ALL (AND)' },
     { value: 'any', label: 'ANY (OR)' },
@@ -695,6 +697,8 @@ function renderConditionBuilder(container, condition, onChange) {
     } else if (newCond.type === BLOCK_PATTERN_TYPE) {
       newCond.workspace_state = null;
       newCond.field_constraints = {};
+    } else if (newCond.type === 'workspace_connectedness') {
+      newCond.mode = 'all_connected';
     }
     onChange(newCond, { rerenderBuilder: true });
   });
@@ -723,6 +727,7 @@ function renderSimpleConditionFields(container, condition, onChange) {
     condition.regex_flags,
   );
   const fieldRegexFlags = getCanonicalRegexFlags(condition.regex_flags);
+  const connectednessMode = normalizeWorkspaceConnectednessMode(condition.mode);
 
   const bind = (selector, field, transform, options = {}) => {
     const el = container.querySelector(selector);
@@ -824,6 +829,14 @@ function renderSimpleConditionFields(container, condition, onChange) {
           <input type="number" class="cond-mx" value="${condition.max ?? 10}" placeholder="Max" min="0" style="flex:1">
         </div>`;
       break;
+    case 'workspace_connectedness':
+      html = `
+        <select class="cond-wcm" style="width:100%;margin-bottom:4px">
+          ${WORKSPACE_CONNECTEDNESS_MODE_OPTIONS.map((option) => `<option value="${option.value}" ${connectednessMode === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
+        </select>
+        <small><strong>All blocks are connected</strong> expects a single top-level program root. <strong>All top-level blocks are active</strong> allows multiple executable/definition roots but rejects loose value blocks such as disconnected numbers, strings, or variable-get blocks.</small>
+      `;
+      break;
     case 'workspace_empty':
       html = '<p style="font-size:12px;color:#999">Matches when workspace has no blocks.</p>';
       break;
@@ -878,6 +891,7 @@ function renderSimpleConditionFields(container, condition, onChange) {
   bind('.cond-rf', 'regex_flags');
   bind('.cond-mn', 'min', (v) => parseInt(v) || 0);
   bind('.cond-mx', 'max', (v) => parseInt(v) || 10);
+  bind('.cond-wcm', 'mode', normalizeWorkspaceConnectednessMode, { event: 'change' });
 }
 
 function renderRuntimeTextAssertionEditor({

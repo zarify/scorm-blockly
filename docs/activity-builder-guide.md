@@ -56,6 +56,13 @@ Set the activity metadata, student instructions, and UI settings.
 | **Enable hints** | ✅ On | Enable student-facing hints in the runtime |
 | **Max attempts** | Unlimited | ⚠️ Not yet enforced at runtime. The field is in the schema for future use |
 
+### Results
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| **Require each test to pass before the next test runs** | ✅ On | Runs tests in order, stops after the first failure, and hides how many later tests are still locked |
+| **All tests passed subtitle** | Blank | Optional success message shown under the heading when every automated check passes |
+
 ---
 
 ## Tab 2: 🧰 Toolbox

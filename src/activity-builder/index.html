@@ -85,6 +85,13 @@
         <div class="form-section">
           <h2>Results</h2>
           <div class="form-group">
+            <label class="checkbox-label">
+              <input type="checkbox" id="cfg-require-previous-test-pass" checked>
+              Require each test to pass before the next test runs
+            </label>
+            <small>When enabled, tests stop at the first failure and students only see that other tests remain unpassed.</small>
+          </div>
+          <div class="form-group">
             <label for="cfg-feedback-on-all-pass">All tests passed subtitle</label>
             <textarea id="cfg-feedback-on-all-pass" rows="2" placeholder="Optional message shown beneath the success heading when all tests pass"></textarea>
             <small>Shown only when every automated check passes.</small>

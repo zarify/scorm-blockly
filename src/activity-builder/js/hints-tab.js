@@ -17,6 +17,7 @@ import {
   getSuggestedConditionBlockTypes,
 } from './condition-suggestions.js';
 import { renderPatternBuilder } from './pattern-builder.js';
+import { WORKSPACE_CONNECTEDNESS_MODE_OPTIONS, normalizeWorkspaceConnectednessMode } from '../../shared/workspace-connectedness.js';
 
 let selectedHintIndex = -1;
 let lastConfigRef = null;
@@ -26,6 +27,7 @@ const CONDITION_TYPES = [
   { value: 'block_missing', label: 'Block missing' },
   { value: BLOCK_PATTERN_TYPE, label: 'Visual block pattern' },
   { value: 'block_count', label: 'Block count in range' },
+  { value: 'workspace_connectedness', label: 'Block connectedness' },
   { value: 'workspace_empty', label: 'Workspace is empty' },
   { value: 'all', label: 'ALL conditions (AND)' },
   { value: 'any', label: 'ANY condition (OR)' },
@@ -270,6 +272,8 @@ function renderConditionBuilder(container, condition, onChange) {
     } else if (newType === BLOCK_PATTERN_TYPE) {
       newCondition.workspace_state = null;
       newCondition.field_constraints = {};
+    } else if (newType === 'workspace_connectedness') {
+      newCondition.mode = 'all_connected';
     }
     onChange(newCondition);
     renderConditionBuilder(container, newCondition, onChange);
@@ -298,6 +302,7 @@ function renderConditionFields(container, condition, onChange) {
     condition.regex_flags,
   );
   const fieldRegexFlags = getCanonicalRegexFlags(condition.regex_flags);
+  const connectednessMode = normalizeWorkspaceConnectednessMode(condition.mode);
   let html = '';
 
   switch (condition.type) {
@@ -462,6 +467,21 @@ function renderConditionFields(container, condition, onChange) {
       `;
       break;
 
+    case 'workspace_connectedness':
+      html = `
+        <div class="condition-row">
+          <label>Rule:</label>
+          <select class="cond-workspace-connectedness-mode">
+            ${WORKSPACE_CONNECTEDNESS_MODE_OPTIONS.map((option) => `<option value="${option.value}" ${connectednessMode === option.value ? 'selected' : ''}>${option.label}</option>`).join('')}
+          </select>
+        </div>
+        <p style="font-size:12px;color:#666;margin:8px 0 0">
+          <strong>All blocks are connected</strong> is best when the learner should produce one connected program.
+          <strong>All top-level blocks are active</strong> still allows multiple executable/definition roots, but rejects loose value blocks such as disconnected numbers, strings, and variable-get blocks.
+        </p>
+      `;
+      break;
+
     case 'workspace_empty':
       html = '<p style="font-size:13px;color:#666;margin:8px 0">No additional parameters needed.</p>';
       break;
@@ -600,6 +620,9 @@ function bindConditionInputs(container, condition, onChange) {
   bindInput('.cond-regex-flags', 'regex_flags');
   bindInput('.cond-min', 'min', (v) => parseInt(v) || 0);
   bindInput('.cond-max', 'max', (v) => parseInt(v) || 10);
+  bindInput('.cond-workspace-connectedness-mode', 'mode', normalizeWorkspaceConnectednessMode, {
+    event: 'change',
+  });
 }
 
 function bindField(id, setter) {

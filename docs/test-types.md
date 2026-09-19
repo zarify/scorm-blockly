@@ -2,6 +2,8 @@
 
 Tests define how student work is evaluated. Each test runs an assertion and contributes to the overall score based on its point value.
 
+If `evaluation.require_previous_test_pass` is enabled (the default), test order matters: the first failing test stops the run, and later tests stay hidden behind a generic “other tests remain unpassed” message until earlier tests pass.
+
 ## Overview
 
 | Type | What It Checks | Requires Code Execution | Use When |
@@ -174,6 +176,8 @@ In the authoring UI, **Visual block pattern** is now the primary option for case
 - `block_nested`
 - `block_field_value`
 
+The builder also supports a **Block connectedness** condition for workspace-wide checks such as "no orphan roots" or "no loose value blocks".
+
 Those older predicate types are still supported for existing configs and API-level editing, but they are treated as legacy options in the builder.
 
 ### Examples
@@ -246,6 +250,30 @@ Those older predicate types are still supported for existing configs and API-lev
   "points": 3,
   "feedback_on_fail": "Use a for-loop and a variable. Don't use break/continue."
 }
+
+// Require one connected program with no orphan roots
+{
+  "id": "test_no_orphans",
+  "type": "block_structure",
+  "conditions": {
+    "type": "workspace_connectedness",
+    "mode": "all_connected"
+  },
+  "points": 2,
+  "feedback_on_fail": "Connect all of your blocks into one program."
+}
+
+// Allow multiple executable roots, but reject loose value blocks
+{
+  "id": "test_no_loose_values",
+  "type": "block_structure",
+  "conditions": {
+    "type": "workspace_connectedness",
+    "mode": "all_active"
+  },
+  "points": 1,
+  "feedback_on_fail": "Remove any disconnected number, text, list, or variable blocks."
+}
 ```
 
 ### When to Use
@@ -253,6 +281,7 @@ Those older predicate types are still supported for existing configs and API-lev
 - **Enforce learning objectives**: Require students to use specific block types (e.g., "must use a loop, not copy-paste")
 - **Partial credit**: Give points for having the right structure even if output is wrong
 - **Scaffolded activities**: Check intermediate steps before the full solution
+- **Workspace hygiene**: Require one connected program (`all_connected`) or reject loose value-block litter while still allowing multiple roots (`all_active`)
 - Use the Tests tab's block pickers to choose block types from the saved Workspace/toolbox suggestions instead of memorizing Blockly identifiers
 
 ---

@@ -10,6 +10,7 @@ import {
   createFieldValueMatcher,
   normalizeFieldValueCaseSensitivity,
 } from './field-value-matching.js';
+import { normalizeWorkspaceConnectednessMode } from './workspace-connectedness.js';
 
 registerBlockPatternBlocks(Blockly);
 
@@ -38,6 +39,7 @@ export function evaluateCondition(workspace, condition) {
     [BLOCK_PATTERN_TYPE]: evalBlockPattern,
     block_field_value: evalBlockFieldValue,
     block_count: evalBlockCount,
+    workspace_connectedness: evalWorkspaceConnectedness,
     workspace_empty: evalWorkspaceEmpty,
     all: evalAll,
     any: evalAny,
@@ -283,6 +285,33 @@ function evalBlockCount(workspace, condition) {
   };
 }
 
+function evalWorkspaceConnectedness(workspace, condition) {
+  const mode = normalizeWorkspaceConnectednessMode(condition.mode);
+  const topBlocks = workspace.getTopBlocks(false);
+
+  if (mode === 'all_active') {
+    const inactiveRoots = topBlocks.filter((block) => Boolean(block?.outputConnection));
+    const passed = inactiveRoots.length === 0;
+
+    return {
+      passed,
+      detail: passed
+        ? `No disconnected value blocks found across ${topBlocks.length} top-level block(s)`
+        : `Found ${inactiveRoots.length} disconnected value block(s): ${summarizeBlocks(inactiveRoots)}`,
+    };
+  }
+
+  const passed = topBlocks.length <= 1;
+  return {
+    passed,
+    detail: passed
+      ? topBlocks.length === 0
+        ? 'Workspace has no blocks, so there are no orphan roots'
+        : `All blocks are connected under one top-level root (${topBlocks[0].type})`
+      : `Found ${topBlocks.length} top-level block(s); expected a single connected program. Roots: ${summarizeBlocks(topBlocks)}`,
+  };
+}
+
 function evalWorkspaceEmpty(workspace, _condition) {
   const blocks = workspace.getAllBlocks(false);
   const passed = blocks.length === 0;
@@ -317,6 +346,14 @@ function evalNone(workspace, condition) {
     passed,
     detail: `NONE: ${results.filter((r) => !r.passed).length}/${results.length} failed (good)`,
   };
+}
+
+function summarizeBlocks(blocks, maxItems = 5) {
+  const shownTypes = blocks.slice(0, maxItems).map((block) => block.type);
+  const remainder = blocks.length - shownTypes.length;
+  return remainder > 0
+    ? `${shownTypes.join(', ')} (+${remainder} more)`
+    : shownTypes.join(', ');
 }
 
 function matchPatternChain(patternBlock, actualBlock, fieldConstraints) {

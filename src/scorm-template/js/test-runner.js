@@ -38,36 +38,27 @@ const EXECUTION_TIMEOUT_MS = 5000;
  * @param {Array} testCases - test_cases from config
  * @param {string} generatedCode - JavaScript code from Blockly generator
  * @param {object} workspace - Blockly workspace instance
- * @returns {Promise<{ results: TestResult[], totalScore: number, maxScore: number }>}
+ * @param {{ requirePreviousTestPass?: boolean }} [options]
+ * @returns {Promise<{ results: TestResult[], totalScore: number, maxScore: number, hasBlockedTests: boolean }>}
  */
-export async function runTests(testCases, generatedCode, workspace) {
+export async function runTests(testCases, generatedCode, workspace, options = {}) {
   const results = [];
-
-  const executionPlan = new Map();
-  for (const tc of testCases) {
-    if (tc.type !== 'stdout_match' && tc.type !== 'variable_state') continue;
-
-    const promptInputs = getPromptInputs(tc);
-    const planKey = getExecutionPlanKey(promptInputs);
-    if (!executionPlan.has(planKey)) {
-      executionPlan.set(planKey, { promptInputs, variableNames: new Set() });
-    }
-
-    if (tc.type === 'variable_state' && tc.variable_name) {
-      executionPlan.get(planKey).variableNames.add(tc.variable_name);
-    }
-  }
-
   const executionResults = new Map();
-  for (const [planKey, plan] of executionPlan.entries()) {
-    executionResults.set(
-      planKey,
-      await executeCode(generatedCode, plan.promptInputs, [...plan.variableNames]),
-    );
-  }
+  const executionPlans = buildExecutionPlans(testCases);
+  const requirePreviousTestPass = options.requirePreviousTestPass === true;
 
-  for (const tc of testCases) {
-    const executionResult = executionResults.get(getExecutionPlanKey(getPromptInputs(tc))) || null;
+  for (let index = 0; index < testCases.length; index += 1) {
+    const tc = testCases[index];
+    if (requirePreviousTestPass && index > 0 && !results[index - 1].passed) {
+      break;
+    }
+
+    const executionResult = await getExecutionResultForTest(
+      tc,
+      generatedCode,
+      executionPlans,
+      executionResults,
+    );
     let result;
     switch (tc.type) {
       case 'stdout_match':
@@ -92,9 +83,48 @@ export async function runTests(testCases, generatedCode, workspace) {
   }
 
   const totalScore = results.reduce((sum, r) => sum + r.score, 0);
-  const maxScore = results.reduce((sum, r) => sum + r.points, 0);
+  const maxScore = testCases.reduce((sum, tc) => sum + getTestPoints(tc), 0);
+  const hasBlockedTests = requirePreviousTestPass && results.length < testCases.length;
 
-  return { results, totalScore, maxScore };
+  return { results, totalScore, maxScore, hasBlockedTests };
+}
+
+function buildExecutionPlans(testCases) {
+  const executionPlans = new Map();
+
+  for (const tc of testCases) {
+    if (tc.type !== 'stdout_match' && tc.type !== 'variable_state') continue;
+
+    const promptInputs = getPromptInputs(tc);
+    const planKey = getExecutionPlanKey(promptInputs);
+    if (!executionPlans.has(planKey)) {
+      executionPlans.set(planKey, { promptInputs, variableNames: new Set() });
+    }
+
+    if (tc.type === 'variable_state' && tc.variable_name) {
+      executionPlans.get(planKey).variableNames.add(tc.variable_name);
+    }
+  }
+
+  return executionPlans;
+}
+
+async function getExecutionResultForTest(testCase, generatedCode, executionPlans, executionResults) {
+  if (testCase.type !== 'stdout_match' && testCase.type !== 'variable_state') {
+    return null;
+  }
+
+  const planKey = getExecutionPlanKey(getPromptInputs(testCase));
+  const plan = executionPlans.get(planKey);
+
+  if (!executionResults.has(planKey)) {
+    executionResults.set(
+      planKey,
+      await executeCode(generatedCode, plan.promptInputs, [...plan.variableNames]),
+    );
+  }
+
+  return executionResults.get(planKey);
 }
 
 /**
