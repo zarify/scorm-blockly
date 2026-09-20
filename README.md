@@ -21,6 +21,45 @@ npm run build
 | `npm run build:builder` | Build Activity Builder only |
 | `npm run export` | Create SCORM `.zip` from the built template |
 | `npm run dev` | Dev server with live rebuild (port 3000) |
+| `npm test` | Run the test suite (Node's built-in runner, no dependencies) |
+
+## Tests
+
+```bash
+npm test                              # whole suite
+node --test test/scorm-wrapper.test.js   # one file
+```
+
+The suite runs on Node's built-in test runner with no test framework, no DOM
+emulation and no network. Tests import `src/` directly, so nothing has to be
+built first.
+
+```
+test/
+├── helpers/                  # shared fixtures
+│   ├── lms.js                # fake Moodle-shaped SCORM 1.2 runtime (write rejection,
+│   │                         #   truncation, commit snapshots, frame nesting)
+│   ├── blockly.js            # real headless Blockly workspaces (no DOM needed)
+│   ├── config.js             # minimal valid activity config + deep-merge overrides
+│   └── fresh.js              # fresh module instance for module-scope session state
+└── *.test.js                 # one file per module
+```
+
+What the suite is aimed at: the edges rather than the happy path. Legacy config
+shapes and unknown keys, boundary values (size limits, score thresholds, empty
+and oversized input), partial or malformed input, precedence between competing
+fields, error paths that must not throw, and the cross-module contracts the
+runtime depends on (a config that validates must also normalise, grade and
+persist). Where behaviour is genuinely a contract — an LMS that rejects a write,
+a returning student whose `passed` status must survive re-entry, a
+`cmi.suspend_data` write that gets truncated — the fake LMS reproduces it.
+
+Not covered by this suite, because it needs a real browser: `Blockly.inject`
+(the SVG workspace in the builder and the student runtime), the builder's tab
+rendering and export/import flows, and the Web Worker execution path in
+`test-runner.js` (Node has no `Worker`, so the direct-execution fallback is what
+the tests exercise). Those are verified manually through the builder and a
+SCORM player.
 
 ## Workflow
 

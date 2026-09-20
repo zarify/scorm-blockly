@@ -31,21 +31,33 @@ let commitTimer = null;
  * SCORM spec says search up to 7 parent levels + window.opener.
  */
 function findAPI(win) {
+  const api = findAPIInFrameChain(win);
+  if (api) return api;
+
+  // SCORM also allows the API to live on the window that opened this one.
+  // Follow exactly one opener: recursing through the opener's own opener would
+  // loop forever whenever the opener has no API either, which is what any
+  // non-SCORM page that opened the package in a new tab looks like.
+  const opener = win?.opener;
+  return opener && opener !== win ? findAPIInFrameChain(opener) : null;
+}
+
+/**
+ * Walk up to seven parent frames looking for the API object.
+ * @param {Window|object|null} win
+ * @returns {object|null}
+ */
+function findAPIInFrameChain(win) {
+  let current = win;
   let attempts = 0;
-  while (win && !win.API && attempts < 7) {
-    if (win.parent === win) break;
-    win = win.parent;
+
+  while (current && !current.API && attempts < 7) {
+    if (current.parent === current) break;
+    current = current.parent;
     attempts++;
   }
-  if (win?.API) return win.API;
 
-  // Try window.opener
-  if (window.opener) {
-    const openerAPI = findAPI(window.opener);
-    if (openerAPI) return openerAPI;
-  }
-
-  return null;
+  return current?.API ?? null;
 }
 
 /**
@@ -96,7 +108,11 @@ export function flushPendingWrites() {
  * @returns {number} the clamped score that was written
  */
 function writeScore(score) {
-  const clamped = Math.max(0, Math.min(100, Math.round(score)));
+  // A non-numeric score (NaN) would survive Math.max/Math.min and reach the LMS
+  // as the text "NaN", which the runtime cannot parse. Infinities still clamp
+  // to the nearest bound.
+  const numeric = Number(score);
+  const clamped = Math.max(0, Math.min(100, Math.round(Number.isNaN(numeric) ? 0 : numeric)));
   api.LMSSetValue('cmi.core.score.raw', String(clamped));
   api.LMSSetValue('cmi.core.score.min', '0');
   api.LMSSetValue('cmi.core.score.max', '100');
