@@ -5,8 +5,34 @@ import {
 
 let nextSuggestionSetId = 0;
 
+/**
+ * Reading block metadata means loading the saved starter workspace into a
+ * throwaway Blockly workspace, which costs ~2.5 ms for a 60-block program and
+ * runs on every condition render. The builder replaces `starting_blocks` (on
+ * import and on save) instead of mutating it, so the object itself is a safe
+ * cache key.
+ */
+let cachedStartingBlocks;
+let cachedWorkspaceMetadata = null;
+
+function getWorkspaceMetadataFor(Blockly, startingBlocks) {
+  if (cachedWorkspaceMetadata && cachedStartingBlocks === startingBlocks) {
+    return cachedWorkspaceMetadata;
+  }
+
+  cachedWorkspaceMetadata = getWorkspaceBlockMetadata(Blockly, startingBlocks);
+  cachedStartingBlocks = startingBlocks;
+  return cachedWorkspaceMetadata;
+}
+
+/**
+ * Block type, input name and field name metadata per block type. The result is
+ * shared between callers and must be treated as read-only.
+ */
+const blockDefinitionMetadataCache = new Map();
+
 export function getSuggestedConditionBlockTypes(Blockly, config) {
-  const workspaceMetadata = getWorkspaceBlockMetadata(
+  const workspaceMetadata = getWorkspaceMetadataFor(
     Blockly,
     config?.blockly_setup?.starting_blocks || null,
   );
@@ -20,18 +46,23 @@ export function getSuggestedConditionBlockTypes(Blockly, config) {
 }
 
 export function getConditionBlockDefinitionMetadata(Blockly, blockType) {
-  if (!blockType || !Blockly.Blocks?.[blockType]) {
+  if (!blockType || !Blockly?.Blocks?.[blockType]) {
     return { inputNames: [], fieldNames: [] };
   }
+
+  const cached = blockDefinitionMetadataCache.get(blockType);
+  if (cached) return cached;
 
   const workspace = new Blockly.Workspace();
 
   try {
     const block = workspace.newBlock(blockType);
-    return {
+    const metadata = {
       inputNames: [...new Set((block.inputList || []).map((input) => input.name).filter(Boolean))].sort(),
       fieldNames: [...new Set((block.getFields?.() || []).map((field) => field.name).filter(Boolean))].sort(),
     };
+    blockDefinitionMetadataCache.set(blockType, metadata);
+    return metadata;
   } catch {
     return { inputNames: [], fieldNames: [] };
   } finally {
