@@ -105,17 +105,32 @@ export function initTestsTab() {
     // Rendering a selected test can notify again (e.g. the pattern builder
     // syncing its workspace); ignore nested notifications instead of recursing.
     if (isSyncingTestEditor) return;
+    // A hidden tab is refreshed when it becomes visible. Rebuilding the list and
+    // the editor (which can inject a pattern workspace) on every edit made
+    // anywhere in the builder is wasted work.
+    if (!isTestsTabVisible()) return;
     isSyncingTestEditor = true;
     try {
-      renderTestList();
-      updateWeightIndicator();
-      if (selectedTestIndex >= 0 && !suppressSelectedTestEditorSync) renderTestEditor();
+      renderTestsTab();
     } finally {
       isSyncingTestEditor = false;
     }
   });
+  window.addEventListener('tab-activated', (event) => {
+    if (event.detail?.tab === 'tests') renderTestsTab();
+  });
   renderTestList();
   updateWeightIndicator();
+}
+
+function isTestsTabVisible() {
+  return document.getElementById('tab-tests')?.classList.contains('active') === true;
+}
+
+function renderTestsTab() {
+  renderTestList();
+  updateWeightIndicator();
+  if (selectedTestIndex >= 0 && !suppressSelectedTestEditorSync) renderTestEditor();
 }
 
 function addTest() {

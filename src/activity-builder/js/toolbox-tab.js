@@ -23,10 +23,9 @@ export function initToolboxTab() {
 
   onConfigChange(() => {
     if (suppressLocalConfigSync) return;
-    renderCategoryList();
-    if (selectedCategoryIndex >= 0) renderBlockList();
-    updateSeedButtonState();
-    updatePreview();
+    // A hidden tab is refreshed when it becomes visible; see initTestsTab.
+    if (!isToolboxTabVisible()) return;
+    renderToolboxTab();
   });
 
   renderCategoryList();
@@ -35,9 +34,20 @@ export function initToolboxTab() {
   // Initialize preview workspace when tab becomes visible
   window.addEventListener('tab-activated', (e) => {
     if (e.detail.tab === 'toolbox') {
-      updatePreview();
+      renderToolboxTab();
     }
   });
+}
+
+function isToolboxTabVisible() {
+  return document.getElementById('tab-toolbox')?.classList.contains('active') === true;
+}
+
+function renderToolboxTab() {
+  renderCategoryList();
+  if (selectedCategoryIndex >= 0) renderBlockList();
+  updateSeedButtonState();
+  updatePreview();
 }
 
 function addCategory() {
