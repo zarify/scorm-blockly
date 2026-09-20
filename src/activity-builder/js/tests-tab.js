@@ -42,6 +42,7 @@ import {
 
 let selectedTestIndex = -1;
 let suppressSelectedTestEditorSync = false;
+let isSyncingTestEditor = false;
 
 const TEST_TYPES = [
   { value: 'stdout_match', label: 'Output/prompt text check' },
@@ -101,9 +102,17 @@ const LIST_ITEM_TYPE_MODES = [
 export function initTestsTab() {
   document.getElementById('btn-add-test').addEventListener('click', addTest);
   onConfigChange(() => {
-    renderTestList();
-    updateWeightIndicator();
-    if (selectedTestIndex >= 0 && !suppressSelectedTestEditorSync) renderTestEditor();
+    // Rendering a selected test can notify again (e.g. the pattern builder
+    // syncing its workspace); ignore nested notifications instead of recursing.
+    if (isSyncingTestEditor) return;
+    isSyncingTestEditor = true;
+    try {
+      renderTestList();
+      updateWeightIndicator();
+      if (selectedTestIndex >= 0 && !suppressSelectedTestEditorSync) renderTestEditor();
+    } finally {
+      isSyncingTestEditor = false;
+    }
   });
   renderTestList();
   updateWeightIndicator();

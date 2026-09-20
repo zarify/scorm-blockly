@@ -63,6 +63,9 @@ export function initHintsTab() {
   onConfigChange(() => {
     const config = getConfig();
     if (config === lastConfigRef) return;
+    // Claim the config before rendering: rendering can notify again (e.g. the
+    // pattern builder syncing its workspace) and must not re-enter this handler.
+    lastConfigRef = config;
 
     const hints = config.hints || [];
     if (selectedHintIndex >= hints.length) {
@@ -71,7 +74,6 @@ export function initHintsTab() {
 
     renderHintList();
     renderHintEditor();
-    lastConfigRef = config;
   });
   renderHintList();
 }
