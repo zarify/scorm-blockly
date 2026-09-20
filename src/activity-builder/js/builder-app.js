@@ -46,7 +46,6 @@ function createDefaultConfig() {
       steps: [],
     },
     ui_settings: {
-      theme: 'default',
       show_code_toggle: false,
       show_hint_panel: true,
     },
@@ -54,12 +53,9 @@ function createDefaultConfig() {
       toolbox: { categories: createDefaultToolboxCategories() },
       starting_blocks: null,
       max_blocks: null,
-      disabled_blocks: [],
     },
     hints: [],
     evaluation: {
-      grading_mode: 'weighted',
-      max_score: 100,
       feedback_on_all_pass: '',
       require_previous_test_pass: true,
       test_cases: [],

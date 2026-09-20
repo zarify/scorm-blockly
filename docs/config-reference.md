@@ -79,7 +79,6 @@ Student-facing text fields support a safe inline Markdown subset: `**bold**`, `*
 
 | Field | Type | Required | Default | Values | Description |
 |-------|------|----------|---------|--------|-------------|
-| `theme` | string | No | `"default"` | `"default"`, `"dark"`, `"high_contrast"` | ⚠️ **Not yet implemented.** Defined in schema but not applied at runtime. |
 | `show_code_toggle` | boolean | No | `false` | — | Show the "Show Code" button that reveals generated JavaScript |
 | `show_hint_panel` | boolean | No | `true` | — | Enable student-facing hints in the UI |
 | `suspend_data_limit` | integer | No | `4096` | `≥ 512` | Characters the runtime may use in `cmi.suspend_data` for saved student work. SCORM 1.2 specifies 4096; raise it only for an LMS known to accept more. Every write is verified by reading it back, and the runtime lowers its own limit and falls back to IndexedDB if the LMS refuses or truncates |
@@ -88,7 +87,6 @@ Student-facing text fields support a safe inline Markdown subset: `**bold**`, `*
 ```json
 {
   "ui_settings": {
-    "theme": "default",
     "show_code_toggle": false,
     "show_hint_panel": true,
     "suspend_data_limit": 4096
@@ -145,7 +143,6 @@ Each category appears as a section in the toolbox sidebar.
 |-------|------|----------|---------|-------------|
 | `starting_blocks` | object or null | No | `null` | Blockly workspace state in JSON serialisation format. Set via the Workspace tab in the builder. `null` = empty workspace |
 | `max_blocks` | integer or null | No | `null` | Maximum number of blocks the student can place. `null` = unlimited |
-| `disabled_blocks` | array of strings | No | `[]` | ⚠️ **Not yet implemented.** Defined in schema but not applied at runtime. Intended: block type IDs that appear greyed out and cannot be used |
 
 ### Block Type Reference
 
@@ -217,8 +214,6 @@ For longer mixed chains/subtrees, `trigger.conditions` can also be a `block_patt
 
 | Field | Type | Required | Default | Values | Description |
 |-------|------|----------|---------|--------|-------------|
-| `grading_mode` | string | No | `"weighted"` | `"pass_fail"`, `"weighted"` | ⚠️ **Not yet implemented at runtime.** Intended: pass_fail = 100 or 0, weighted = sum of passing test points. Currently the LMS score is derived from points earned divided by total available points. |
-| `max_score` | integer | No | `100` | `1`–`100` | ⚠️ **Not yet implemented at runtime.** Score is always reported as 0–100 percentage. |
 | `feedback_on_all_pass` | string | No | — | — | Subtitle shown inside the green results header when every automated test passes |
 | `require_previous_test_pass` | boolean | No | `true` | — | If `true`, tests run in list order and later tests stay locked until the previous test passes. Students see only the executed test feedback plus a generic “other tests remain unpassed” message. |
 | `test_cases` | array | ✅ | — | Minimum 1 | Array of test case objects |
@@ -261,8 +256,6 @@ For `stdout_match`, you can also set `execution_context.scope` to `"function"` a
 ```json
 {
   "evaluation": {
-    "grading_mode": "weighted",
-    "max_score": 100,
     "require_previous_test_pass": true,
     "feedback_on_all_pass": "Excellent work — every automated check passed.",
     "test_cases": [

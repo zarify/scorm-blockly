@@ -107,7 +107,7 @@ Each activity is defined by a single JSON config file (`activity_config.json`) w
 
 - **metadata** — Activity ID, title, version, description
 - **instructions** — Main instruction text + ordered steps
-- **ui_settings** — Theme, show/hide toggles, suspend data limit
+- **ui_settings** — Show/hide toggles and the suspend data limit
 - **blockly_setup** — Toolbox categories/blocks, starter blocks, max blocks
 - **hints** — Configurable hints triggered by workspace conditions or test results
 - **evaluation** — Test cases with four assertion types

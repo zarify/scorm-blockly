@@ -18,7 +18,6 @@ export function activityConfig(overrides = {}) {
       },
       instructions: { main: '', steps: [] },
       ui_settings: {
-        theme: 'default',
         show_code_toggle: false,
         show_hint_panel: true,
         suspend_data_limit: 4096,
@@ -27,12 +26,9 @@ export function activityConfig(overrides = {}) {
         toolbox: { categories: [{ name: 'Text', colour: '#5CA68D', blocks: ['text_print', 'text'] }] },
         starting_blocks: null,
         max_blocks: null,
-        disabled_blocks: [],
       },
       hints: [],
       evaluation: {
-        grading_mode: 'pass_fail',
-        max_score: 100,
         require_previous_test_pass: true,
         feedback_on_all_pass: '',
         test_cases: [

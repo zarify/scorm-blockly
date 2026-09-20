@@ -35,7 +35,6 @@ function richConfig() {
     },
     instructions: { main: 'Do it', steps: ['one', 2, null] },
     ui_settings: {
-      theme: 'dark',
       show_code_toggle: true,
       show_hint_panel: false,
       suspend_data_limit: 2048,
@@ -51,7 +50,6 @@ function richConfig() {
       },
       starting_blocks: { blocks: { languageVersion: 0, blocks: [] } },
       max_blocks: 25,
-      disabled_blocks: ['controls_for', '', 3],
     },
     hints: [
       {
@@ -96,8 +94,6 @@ function richConfig() {
       },
     ],
     evaluation: {
-      grading_mode: 'weighted',
-      max_score: 50,
       feedback_on_all_pass: 'nice',
       require_previous_test_pass: false,
       unknown_eval: 1,
@@ -172,7 +168,6 @@ test('a config with no sections at all still produces a complete draft', () => {
     });
     assert.deepEqual(config.instructions, { main: '', steps: [] });
     assert.deepEqual(config.ui_settings, {
-      theme: 'default',
       show_code_toggle: false,
       show_hint_panel: true,
       suspend_data_limit: SUSPEND_DATA_DEFAULT_LIMIT,
@@ -180,11 +175,8 @@ test('a config with no sections at all still produces a complete draft', () => {
     assert.deepEqual(config.blockly_setup.toolbox.categories, []);
     assert.equal(config.blockly_setup.starting_blocks, null);
     assert.equal(config.blockly_setup.max_blocks, null);
-    assert.deepEqual(config.blockly_setup.disabled_blocks, []);
     assert.deepEqual(config.hints, []);
     assert.deepEqual(config.evaluation.test_cases, []);
-    assert.equal(config.evaluation.grading_mode, 'weighted');
-    assert.equal(config.evaluation.max_score, 100);
     assert.equal(config.evaluation.feedback_on_all_pass, '');
     assert.equal(config.evaluation.require_previous_test_pass, true);
   }
@@ -210,7 +202,6 @@ test('a section of the wrong type is replaced wholesale, not half-read', () => {
   });
   assert.deepEqual(config.instructions, { main: '', steps: [] });
   assert.deepEqual(config.ui_settings, {
-    theme: 'default',
     show_code_toggle: false,
     show_hint_panel: true,
     suspend_data_limit: SUSPEND_DATA_DEFAULT_LIMIT,
@@ -218,15 +209,14 @@ test('a section of the wrong type is replaced wholesale, not half-read', () => {
   assert.deepEqual(config.blockly_setup.toolbox.categories, []);
   assert.deepEqual(config.hints, []);
   assert.deepEqual(config.evaluation.test_cases, []);
-  assert.equal(config.evaluation.max_score, 100);
 });
 
 test('readable fields inside a partly broken section survive', () => {
   const { config } = normalizeBuilderDraftConfig({
     metadata: { activity_id: 'a_1', title: 42, description: null },
     instructions: { main: 'go', steps: 'nope' },
-    ui_settings: { theme: 'dark', show_code_toggle: true, show_hint_panel: false },
-    evaluation: { grading_mode: 'pass_fail', max_score: '55', require_previous_test_pass: false },
+    ui_settings: { show_code_toggle: true, show_hint_panel: false },
+    evaluation: { require_previous_test_pass: false },
   });
   assert.deepEqual(config.metadata, {
     activity_id: 'a_1',
@@ -235,11 +225,8 @@ test('readable fields inside a partly broken section survive', () => {
     description: '',
   });
   assert.deepEqual(config.instructions, { main: 'go', steps: [] });
-  assert.equal(config.ui_settings.theme, 'dark');
   assert.equal(config.ui_settings.show_code_toggle, true);
   assert.equal(config.ui_settings.show_hint_panel, false);
-  assert.equal(config.evaluation.grading_mode, 'pass_fail');
-  assert.equal(config.evaluation.max_score, 55);
   assert.equal(config.evaluation.require_previous_test_pass, false);
 });
 
@@ -273,13 +260,10 @@ test('only known keys reach the draft, at every level', () => {
     'show_code_toggle',
     'show_hint_panel',
     'suspend_data_limit',
-    'theme',
   ]);
   assert.deepEqual(keysOf(config.blockly_setup.toolbox), ['categories']);
   assert.deepEqual(keysOf(config.evaluation), [
     'feedback_on_all_pass',
-    'grading_mode',
-    'max_score',
     'require_previous_test_pass',
     'test_cases',
   ]);
@@ -318,13 +302,6 @@ test('ui_settings booleans only treat an explicit value as set', () => {
   assert.equal(showHints(undefined), true);
   assert.equal(showHints('false'), true); // only an explicit false hides the panel
   assert.equal(showHints(0), true);
-
-  const theme = (value) =>
-    normalizeBuilderDraftConfig({ ui_settings: { theme: value } }).config.ui_settings.theme;
-  assert.equal(theme('dark'), 'dark');
-  assert.equal(theme(''), '');
-  assert.equal(theme(5), 'default');
-  assert.equal(theme(null), 'default');
 });
 
 test('suspend_data_limit falls back to the SCORM default when it cannot be read as a number', () => {
@@ -386,11 +363,6 @@ test('blockly_setup numbers, lists and starting blocks are read defensively', ()
   assert.equal(setup({ max_blocks: 'many' }).max_blocks, null);
   assert.equal(setup({ max_blocks: 0 }).max_blocks, 0);
   assert.equal(setup({ max_blocks: null }).max_blocks, null);
-
-  assert.deepEqual(setup({ disabled_blocks: ['text_print', '', '   ', 7, null] }).disabled_blocks, [
-    'text_print',
-  ]);
-  assert.deepEqual(setup({ disabled_blocks: 'text_print' }).disabled_blocks, []);
 
   assert.equal(setup({ starting_blocks: [] }).starting_blocks, null);
   assert.equal(setup({ starting_blocks: 'blocks' }).starting_blocks, null);
@@ -1159,7 +1131,7 @@ test('normalising never mutates or shares the caller config', () => {
   // The results are detached copies: writing to them cannot reach the input.
   draft.metadata.title = 'changed';
   draft.blockly_setup.starting_blocks.blocks.added = true;
-  exported.config.ui_settings.theme = 'changed';
+  exported.config.ui_settings.show_hint_panel = 'changed';
   assert.deepEqual(JSON.parse(JSON.stringify(raw)), snapshot);
 });
 
@@ -1170,4 +1142,54 @@ test('the SCORM alias produces exactly the export payload', () => {
   assert.deepEqual(viaScorm.omissions, viaExport.omissions);
 
   assert.deepEqual(sanitizeConfigForScorm({}).omissions, { categories: 0, hints: 0, tests: 0 });
+});
+
+test('settings removed from the schema are dropped from an older config', () => {
+  // Configs written before these fields were removed still have to load: the
+  // builder imports a config through this normalizer, and an activity that
+  // exported them is still sitting in a Moodle course.
+  const legacy = {
+    metadata: { activity_id: 'legacy_activity', title: 'Legacy' },
+    ui_settings: {
+      theme: 'high_contrast',
+      show_code_toggle: true,
+      show_hint_panel: true,
+      suspend_data_limit: 2048,
+    },
+    blockly_setup: {
+      toolbox: { categories: [{ name: 'Text', blocks: ['text_print'] }] },
+      disabled_blocks: ['controls_for'],
+      max_blocks: 30,
+    },
+    evaluation: {
+      grading_mode: 'pass_fail',
+      max_score: 50,
+      require_previous_test_pass: true,
+      test_cases: [{ id: 't', type: 'block_structure', points: 5, conditions: { type: 'workspace_empty' } }],
+    },
+  };
+
+  const { config } = normalizeBuilderDraftConfig(legacy);
+  assert.deepEqual(config.ui_settings, {
+    show_code_toggle: true,
+    show_hint_panel: true,
+    suspend_data_limit: 2048,
+  });
+  assert.deepEqual(config.blockly_setup.disabled_blocks, undefined);
+  assert.equal(config.blockly_setup.max_blocks, 30);
+  assert.equal(config.evaluation.grading_mode, undefined);
+  assert.equal(config.evaluation.max_score, undefined);
+  assert.equal(config.evaluation.test_cases.length, 1);
+
+  const { config: exported } = sanitizeConfigForExport(legacy);
+  assert.deepEqual(Object.keys(exported.ui_settings).sort(), [
+    'show_code_toggle',
+    'show_hint_panel',
+    'suspend_data_limit',
+  ]);
+  assert.deepEqual(Object.keys(exported.evaluation).sort(), [
+    'feedback_on_all_pass',
+    'require_previous_test_pass',
+    'test_cases',
+  ]);
 });

@@ -15,7 +15,6 @@
     ]
   },
   "ui_settings": {
-    "theme": "default",
     "show_code_toggle": false,
     "show_hint_panel": true
   },
@@ -25,13 +24,15 @@
         {
           "name": "Text",
           "colour": "#5CA68D",
-          "blocks": ["text", "text_print"]
+          "blocks": [
+            "text",
+            "text_print"
+          ]
         }
       ]
     },
     "starting_blocks": null,
-    "max_blocks": null,
-    "disabled_blocks": []
+    "max_blocks": null
   },
   "hints": [
     {
@@ -55,11 +56,19 @@
         "conditions": {
           "type": "all",
           "conditions": [
-            { "type": "block_exists", "block_type": "text_print" },
+            {
+              "type": "block_exists",
+              "block_type": "text_print"
+            },
             {
               "type": "none",
               "conditions": [
-                { "type": "block_nested", "outer_type": "text_print", "inner_type": "text", "input_name": "TEXT" }
+                {
+                  "type": "block_nested",
+                  "outer_type": "text_print",
+                  "inner_type": "text",
+                  "input_name": "TEXT"
+                }
               ]
             }
           ]
@@ -72,8 +81,6 @@
     }
   ],
   "evaluation": {
-    "grading_mode": "pass_fail",
-    "max_score": 100,
     "require_previous_test_pass": true,
     "feedback_on_all_pass": "Excellent work — every automated check passed.",
     "test_cases": [

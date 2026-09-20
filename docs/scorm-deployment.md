@@ -55,7 +55,7 @@ This produces a functional SCORM package with the bundled student runtime includ
 | Setting | Recommended Value | Notes |
 |---------|-------------------|-------|
 | **Grading method** | Highest grade | Students may attempt multiple times |
-| **Maximum grade** | 100 | Matches the SCORM max_score |
+| **Maximum grade** | 100 | Matches the 0–100 percentage the runtime reports |
 
 #### Attempts Settings
 

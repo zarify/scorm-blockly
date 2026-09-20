@@ -48,11 +48,6 @@
     "ui_settings": {
       "type": "object",
       "properties": {
-        "theme": {
-          "type": "string",
-          "enum": ["default", "dark", "high_contrast"],
-          "default": "default"
-        },
         "show_code_toggle": {
           "type": "boolean",
           "default": false,
@@ -116,12 +111,6 @@
           "minimum": 1,
           "default": null,
           "description": "Maximum number of blocks allowed (null = unlimited)"
-        },
-        "disabled_blocks": {
-          "type": "array",
-          "items": { "type": "string" },
-          "default": [],
-          "description": "Block types that appear greyed out and cannot be used"
         }
       }
     },
@@ -136,18 +125,6 @@
       "type": "object",
       "required": ["test_cases"],
       "properties": {
-        "grading_mode": {
-          "type": "string",
-          "enum": ["pass_fail", "weighted"],
-          "default": "weighted",
-          "description": "pass_fail: 100 or 0; weighted: sum of passing test points"
-        },
-        "max_score": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 100,
-          "default": 100
-        },
         "feedback_on_all_pass": {
           "type": "string",
           "description": "Optional subtitle shown in the results header when every automated test passes"
