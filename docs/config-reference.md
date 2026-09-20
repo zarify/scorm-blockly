@@ -83,6 +83,7 @@ Student-facing text fields support a safe inline Markdown subset: `**bold**`, `*
 | `show_code_toggle` | boolean | No | `false` | — | Show the "Show Code" button that reveals generated JavaScript |
 | `show_hint_panel` | boolean | No | `true` | — | Enable student-facing hints in the UI |
 | `max_attempts` | integer or null | No | `null` | `≥ 1` or `null` | ⚠️ **Not yet enforced at runtime.** Defined in schema but the Check button is not disabled after N attempts. |
+| `suspend_data_limit` | integer | No | `4096` | `≥ 512` | Characters the runtime may use in `cmi.suspend_data` for saved student work. SCORM 1.2 specifies 4096; raise it only for an LMS known to accept more. Every write is verified by reading it back, and the runtime lowers its own limit and falls back to IndexedDB if the LMS refuses or truncates |
 
 **Example:**
 ```json
@@ -91,7 +92,8 @@ Student-facing text fields support a safe inline Markdown subset: `**bold**`, `*
     "theme": "default",
     "show_code_toggle": false,
     "show_hint_panel": true,
-    "max_attempts": null
+    "max_attempts": null,
+    "suspend_data_limit": 4096
   }
 }
 ```
@@ -178,7 +180,7 @@ Each hint object:
 | `trigger.after_attempts` | integer | No | `0` | Minimum number of failed test runs before hint can appear |
 | `message` | string | ✅ | — | Text shown to the student |
 | `display_mode` | string | No | `"triggered"` | `triggered`: hide until fired. `checklist`: always show in the sidebar and tick off once triggered. |
-| `priority` | integer | No | `1` | Higher priority hints appear first (sorted descending) |
+| `priority` | integer | No | `1` | Higher priority hints appear first (sorted descending); equal priorities keep the array order, which the builder edits by drag-and-drop |
 | `delay_seconds` | integer | No | `0` | Seconds after condition becomes true before hint appears |
 | `show_once` | boolean | No | `false` | If `true`, the hint can only be used once. After it is consumed, it will not reappear |
 | `style` | string | No | — | Optional visual style: `"success"`, `"warning"`, or `"error"` |
@@ -209,7 +211,7 @@ Each hint object:
 
 Checklist-style hints work best when the condition represents a completed milestone, such as `block_exists` for a required block or a matching `block_pattern` for a finished structure.
 
-For longer mixed chains/subtrees, `trigger.conditions` can also be a `block_pattern` condition built visually in the authoring UI and stored as a serialized pattern workspace plus optional field constraints.
+For longer mixed chains/subtrees, `trigger.conditions` can also be a `block_pattern` condition built visually in the authoring UI and stored as a serialized pattern workspace plus optional `field_constraints` and, for function blocks, `param_constraints` (parameter count checks).
 
 ---
 

@@ -1,5 +1,5 @@
 import { getDefaultCategoryColour } from './blockly-toolbox.js';
-import { BLOCK_PATTERN_TYPE } from './block-pattern.js';
+import { BLOCK_PATTERN_TYPE, normalizeParamCountConstraint } from './block-pattern.js';
 import {
   VALID_CONDITION_TYPES,
   VALID_HINT_DISPLAY_MODES,
@@ -30,6 +30,9 @@ import {
   normalizeTestConfig,
   shouldEnforcePromptInputCount,
 } from './test-config.js';
+
+/** SCORM 1.2 specifies 4096 characters for cmi.suspend_data. */
+export const SUSPEND_DATA_DEFAULT_LIMIT = 4096;
 
 /**
  * Normalize an arbitrary config object into a builder-safe draft shape.
@@ -133,6 +136,9 @@ function createBaseConfig(source) {
       show_code_toggle: uiSettings.show_code_toggle === true,
       show_hint_panel: uiSettings.show_hint_panel !== false,
       max_attempts: asOptionalInteger(uiSettings.max_attempts, null),
+      // SCORM 1.2 specifies 4096 characters for cmi.suspend_data.
+      suspend_data_limit: asOptionalInteger(uiSettings.suspend_data_limit, SUSPEND_DATA_DEFAULT_LIMIT)
+        ?? SUSPEND_DATA_DEFAULT_LIMIT,
     },
     blockly_setup: {
       toolbox: { categories: [] },
@@ -386,6 +392,7 @@ function normalizeDraftCondition(condition) {
         type: condition.type,
         workspace_state: isObjectLike(condition.workspace_state) ? condition.workspace_state : null,
         field_constraints: normalizePatternFieldConstraints(condition.field_constraints),
+        param_constraints: normalizePatternParamConstraints(condition.param_constraints),
       };
     case 'block_count':
       return {
@@ -497,10 +504,12 @@ function normalizePublishCondition(condition) {
       }
     case BLOCK_PATTERN_TYPE: {
       const fieldConstraints = normalizePatternFieldConstraints(condition.field_constraints);
+      const paramConstraints = normalizePatternParamConstraints(condition.param_constraints);
       return {
         type,
         ...(isObjectLike(condition.workspace_state) ? { workspace_state: condition.workspace_state } : {}),
         ...(Object.keys(fieldConstraints).length > 0 ? { field_constraints: fieldConstraints } : {}),
+        ...(Object.keys(paramConstraints).length > 0 ? { param_constraints: paramConstraints } : {}),
       };
     }
     case 'block_count':
@@ -573,6 +582,19 @@ function normalizePerHintDisplayMode(value, fallback = 'triggered') {
     return value;
   }
   return fallback === 'checklist' ? 'checklist' : 'triggered';
+}
+
+function normalizePatternParamConstraints(value) {
+  if (!isObjectLike(value)) return {};
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .map(([blockId, constraint]) => {
+        const normalized = normalizeParamCountConstraint(constraint);
+        return normalized ? [[blockId, normalized]] : [];
+      })
+      .flat(),
+  );
 }
 
 function normalizePatternFieldConstraints(value) {

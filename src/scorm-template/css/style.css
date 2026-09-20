@@ -30,6 +30,7 @@ body {
 .status-info { background: #e3f2fd; color: #1565c0; }
 .status-error { background: #ffebee; color: #c62828; }
 .status-success { background: #e8f5e9; color: #2e7d32; }
+.status-warning { background: #fff8e1; color: #8d6e00; }
 
 /* Main layout */
 #main-layout {

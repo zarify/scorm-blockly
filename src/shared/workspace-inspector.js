@@ -1,8 +1,10 @@
 import * as Blockly from 'blockly';
 import {
   BLOCK_PATTERN_TYPE,
+  getBlockParamCount,
   isPatternStatementWildcard,
   isPatternValueWildcard,
+  matchesParamCountConstraint,
   registerBlockPatternBlocks,
 } from './block-pattern.js';
 import { getComparableFieldValue } from './blockly-field-values.js';
@@ -247,10 +249,11 @@ function evalBlockPattern(workspace, condition) {
 
     const patternRoot = roots[0];
     const fieldConstraints = condition.field_constraints || {};
+    const paramConstraints = condition.param_constraints || {};
     const candidates = workspace.getAllBlocks(false);
 
     for (const candidate of candidates) {
-      if (matchPatternChain(patternRoot, candidate, fieldConstraints)) {
+      if (matchPatternChain(patternRoot, candidate, fieldConstraints, paramConstraints)) {
         return {
           passed: true,
           detail: `Pattern rooted at ${patternRoot.type} matched workspace block ${candidate.type}`,
@@ -356,7 +359,7 @@ function summarizeBlocks(blocks, maxItems = 5) {
     : shownTypes.join(', ');
 }
 
-function matchPatternChain(patternBlock, actualBlock, fieldConstraints) {
+function matchPatternChain(patternBlock, actualBlock, fieldConstraints, paramConstraints) {
   if (!patternBlock) return true;
 
   if (isPatternStatementWildcard(patternBlock)) {
@@ -364,13 +367,13 @@ function matchPatternChain(patternBlock, actualBlock, fieldConstraints) {
     if (!nextPattern) return true;
 
     let cursor = actualBlock;
-    if (matchPatternChain(nextPattern, cursor, fieldConstraints)) {
+    if (matchPatternChain(nextPattern, cursor, fieldConstraints, paramConstraints)) {
       return true;
     }
 
     while (cursor) {
       cursor = cursor.getNextBlock?.() || null;
-      if (matchPatternChain(nextPattern, cursor, fieldConstraints)) {
+      if (matchPatternChain(nextPattern, cursor, fieldConstraints, paramConstraints)) {
         return true;
       }
     }
@@ -379,7 +382,7 @@ function matchPatternChain(patternBlock, actualBlock, fieldConstraints) {
   }
 
   if (!actualBlock) return false;
-  if (!matchPatternBlock(patternBlock, actualBlock, fieldConstraints)) {
+  if (!matchPatternBlock(patternBlock, actualBlock, fieldConstraints, paramConstraints)) {
     return false;
   }
 
@@ -387,15 +390,24 @@ function matchPatternChain(patternBlock, actualBlock, fieldConstraints) {
     patternBlock.getNextBlock?.() || null,
     actualBlock.getNextBlock?.() || null,
     fieldConstraints,
+    paramConstraints,
   );
 }
 
-function matchPatternBlock(patternBlock, actualBlock, fieldConstraints) {
+function matchPatternBlock(patternBlock, actualBlock, fieldConstraints, paramConstraints) {
   if (isPatternValueWildcard(patternBlock)) {
     return Boolean(actualBlock);
   }
 
   if (patternBlock.type !== actualBlock.type) {
+    return false;
+  }
+
+  const paramConstraint = paramConstraints?.[patternBlock.id];
+  if (
+    paramConstraint
+    && !matchesParamCountConstraint(getBlockParamCount(actualBlock), paramConstraint)
+  ) {
     return false;
   }
 

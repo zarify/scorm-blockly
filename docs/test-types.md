@@ -213,6 +213,8 @@ In the authoring UI, **Visual block pattern** is now the primary option for case
 
 The builder also supports a **Block connectedness** condition for workspace-wide checks such as "no orphan roots" or "no loose value blocks".
 
+A `block_pattern` condition can constrain a matched block further with `field_constraints` (exact/contains/regex field values) and, for function blocks, `param_constraints` (parameter count by `equals`, `gte`, or `lte`). Parameter count checks let you grade a function signature without prescribing parameter names.
+
 Those older predicate types are still supported for existing configs and API-level editing, but they are treated as legacy options in the builder.
 
 ### Examples
@@ -263,6 +265,21 @@ Those older predicate types are still supported for existing configs and API-lev
   },
   "points": 2,
   "feedback_on_fail": "Use a prompt with the expected message."
+}
+
+// Function definition with any name and exactly two parameters
+{
+  "id": "test_function_signature",
+  "type": "block_structure",
+  "conditions": {
+    "type": "block_pattern",
+    "workspace_state": { "...": "serialized pattern workspace with one function definition block" },
+    "param_constraints": {
+      "procedure_block_id": { "count": 2, "comparison": "equals" }
+    }
+  },
+  "points": 2,
+  "feedback_on_fail": "The function needs exactly two parameters."
 }
 
 // Complex: must use a loop AND have a variable, but NOT use break

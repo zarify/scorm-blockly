@@ -132,6 +132,21 @@ The student's code created an infinite loop. The 5-second timeout in the Web Wor
 
 If legitimate code needs more than 5 seconds (unlikely for Blockly activities), adjust `EXECUTION_TIMEOUT_MS` in `test-runner.js`.
 
+### Student work is not restored next session
+
+The runtime saves the workspace in two layers — `cmi.suspend_data` (portable, 4096 characters by default) and this browser's IndexedDB (large, but per device) — and restores the newest complete snapshot. See [Student Progress Persistence](scorm-deployment.md#student-progress-persistence). If nothing is restored:
+
+1. **Same attempt** — Moodle only keeps `suspend_data` for the current attempt; **Force new attempt** starts fresh
+2. **Status-bar notice** — the runtime explains what happened instead of failing silently:
+   - *"Your blocks are stored in this browser only — they are too large for the LMS to keep."* → the program exceeds the suspend data budget; it will still restore on this browser, and you can raise `ui_settings.suspend_data_limit` for an LMS that accepts more
+   - *"This browser no longer has the saved copy of your blocks (storage was cleared, or you are on another device)."* → the IndexedDB copy was evicted, private browsing was used, or the student changed device; the `suspend_data` snapshot was also missing, so the starting blocks were loaded
+   - *"The LMS did not store your blocks, so progress will not be restored next session."* → the LMS rejected the write entirely
+   - *"Your blocks are too large to save, so progress will not be restored next session."* → the program exceeds the budget **and** the browser copy is unavailable (for example private browsing), so nothing could be kept
+3. **Console** — `[WorkspacePersistence]` warnings report an LMS that truncated or altered a write (for example `LMS stored 4000 of 14667 characters; capping suspend data at 4000 characters`); the runtime lowers its own limit and keeps working
+4. **Reset** — clicking **↺ Reset** discards both layers on purpose
+5. **Activity id** — saved state is only restored when the stored `activity_id` matches the config in the package
+6. **No LMS** — in preview mode (no SCORM API detected) nothing is stored; use Moodle or the builder preview with an LMS API present
+
 ### Activity works locally but not in Moodle
 
 Common differences between local preview and Moodle:
@@ -142,6 +157,38 @@ Common differences between local preview and Moodle:
 | **iframe context** | Direct page load | Nested iframes | Check CSP headers, frame options |
 | **File paths** | Relative to filesystem | Relative to SCORM package | All paths in the package are relative |
 | **Browser popups** | Allowed | May be blocked | Configure Moodle SCORM display settings |
+
+### Console warns about a synchronous XMLHttpRequest, and dragging feels jerky
+
+```
+Synchronous XMLHttpRequest on the main thread is deprecated …
+```
+
+That warning is Moodle's, not the package's: `mod/scorm/request.js` sends every SCORM data write with `httpReq.open("POST", url, false)` — a **synchronous** XHR to `mod/scorm/datamodel.php`. The tab freezes for the whole server round-trip (plus Moodle's grade recalculation for that user), which is what makes dragging and editing feel jerky on a busy or under-provisioned server.
+
+There is no way to remove the warning without patching Moodle core. What the runtime controls is how often it puts you on that path:
+
+- Background saves from editing are coalesced: one workspace write and one commit per burst of edits, and never more than one commit per 10 seconds
+- A save that comes due while the student is dragging a block is deferred until the gesture ends, so the freeze cannot land mid-drag
+- **Check**, tab hide and leaving the page flush immediately instead of waiting, so nothing is lost by the coalescing
+
+To confirm the cost is the server leg, watch a `datamodel.php` POST in DevTools → Network: the tab is frozen for exactly that request's duration. If it is slow, look at PHP-FPM/DB load and at `$CFG->cachejs`/opcache; the package cannot make a slow round-trip fast.
+
+### Moodle warns that your Internet connection is unreliable
+
+The popup *"The SCORM player has determined that your Internet connection is unreliable or has been interrupted"* is Moodle's own SCORM connectivity watchdog. It does not have to mean the connection dropped, and the package cannot switch it off — it runs in the player page, next to the SCO.
+
+- Moodle arms the watchdog for every SCORM activity: `\core\session\manager::keepalive('networkdropped', 'mod_scorm', 30, 10)` in `mod/scorm/player.php`, implemented by the `core/network` AMD module. It posts `core_session_touch` to `/lib/ajax/service.php` every **30 seconds** with a **10-second** timeout, and raises the alert after the **first** call that fails or does not answer in time. The `Starting Moodle session keep-alive.` console line is that watchdog starting.
+- The SCO shares the player page's main thread, and every SCORM write is a blocking request (`mod/scorm/request.js` posts with a synchronous XHR). A write that stalls freezes the tab, and the watchdog counts the late callback as a timeout. The runtime keeps its exposure small: background commits are coalesced and throttled to one per 10 seconds, a save that comes due mid-drag waits for the gesture to end, and the session is never torn down on `beforeunload`.
+- With the popup on screen, check F12 → Network:
+  - The `core_session_touch` POST beside it. `(canceled)`/status `0`, a 4xx/5xx, or a duration near 10,000 ms is the trigger; an instant 200 means nothing reached the browser in time — i.e. the tab, not the network, was blocked.
+  - The `datamodel.php` POSTs the activity itself makes. Commit round-trips of several seconds mean the server, not the student, is the bottleneck.
+- Server-side suspects, in order: PHP-FPM/DB load (common on a development instance), the Moodle session lock held by a concurrent request for the same user (Moodle only skips that lock when `$CFG->enable_read_only_sessions` is on), an already expired `sessiontimeout` for the user, and a browser extension or ad blocker blocking or delaying the POST — retest in a clean profile.
+- To rule the package out, leave the activity open and idle for a few minutes: this runtime does no periodic work at all. Requests only come from real edits, **Check**, tab hide, and leaving the page.
+
+### Console shows `Source Map URL: app.bundle.js.map` failing with 404
+
+Packages exported by the Activity Builder used to embed the development bundle, whose last line pointed at `app.bundle.js.map` — a file that is never part of a package. The error is harmless, and exports now strip that reference (the production `npm run export` bundle never had it). Rebuild and re-export if you still see it.
 
 ### Hints not appearing
 
@@ -200,6 +247,7 @@ Check these first:
 3. **Scoped field constraints** — field constraints are tied to the selected pattern block, not applied workspace-wide
 4. **Comparison mode** — choose carefully between exact, contains, regex full-match, and regex search
 5. **Structure direction** — nested inputs and vertical `next` chains must be connected in the pattern exactly the way you want them matched
+6. **Parameter count** — a **Match parameter count** constraint only exists on function definition and call blocks; it compares arity, so parameter names never need to match
 
 ### `block_field_value` not matching
 

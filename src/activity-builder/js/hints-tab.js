@@ -17,6 +17,11 @@ import {
   getSuggestedConditionBlockTypes,
 } from './condition-suggestions.js';
 import { renderPatternBuilder } from './pattern-builder.js';
+import {
+  enableListReordering,
+  getSelectionIndexAfterMove,
+  moveListItem,
+} from './list-reorder.js';
 import { WORKSPACE_CONNECTEDNESS_MODE_OPTIONS, normalizeWorkspaceConnectednessMode } from '../../shared/workspace-connectedness.js';
 
 let selectedHintIndex = -1;
@@ -111,8 +116,8 @@ function renderHintList() {
   const hints = getConfig().hints || [];
 
   container.innerHTML = hints.map((hint, i) => `
-    <div class="list-item ${i === selectedHintIndex ? 'selected' : ''}" data-index="${i}">
-      <span class="list-item-title">${escapeHtml(getHintListTitle(hint.message))}</span>
+    <div class="list-item hint-list-item list-item-reorderable ${i === selectedHintIndex ? 'selected' : ''}" data-index="${i}" draggable="true">
+      <span class="list-item-title">${getHintListTitle(hint)}</span>
       <button class="list-item-remove" data-index="${i}" title="Remove hint">✕</button>
     </div>
   `).join('');
@@ -126,12 +131,36 @@ function renderHintList() {
     });
   });
 
+  enableListReordering(container, {
+    itemSelector: '.hint-list-item',
+    onMove: moveHint,
+  });
+
   container.querySelectorAll('.list-item-remove').forEach((el) => {
     el.addEventListener('click', (e) => {
       e.stopPropagation();
       removeHint(parseInt(el.dataset.index));
     });
   });
+}
+
+function moveHint(fromIndex, targetIndex, position) {
+  const moved = moveListItem(getConfig().hints || [], fromIndex, targetIndex, position);
+  if (!moved) return;
+  if (!moved.changed) {
+    renderHintList();
+    return;
+  }
+
+  selectedHintIndex = getSelectionIndexAfterMove(
+    selectedHintIndex,
+    moved.fromIndex,
+    moved.insertIndex,
+  );
+
+  notifyChange();
+  renderHintList();
+  renderHintEditor();
 }
 
 function renderHintEditor() {
@@ -227,7 +256,7 @@ function renderHintEditor() {
   bindField('hint-id', (v) => { hint.id = v; });
   bindField('hint-message', (v) => {
     hint.message = v;
-    updateHintListTitle(selectedHintIndex, v);
+    updateHintListTitle(selectedHintIndex, hint);
   });
   bindField('hint-display-mode', (v) => {
     hint.display_mode = v === 'checklist' ? 'checklist' : 'triggered';
@@ -237,7 +266,10 @@ function renderHintEditor() {
     renderHintEditor();
   });
   bindField('hint-trigger-event', (v) => { hint.trigger.event = v; });
-  bindField('hint-priority', (v) => { hint.priority = parseInt(v) || 1; });
+  bindField('hint-priority', (v) => {
+    hint.priority = parseInt(v) || 1;
+    updateHintListTitle(selectedHintIndex, hint);
+  });
   bindField('hint-delay', (v) => { hint.delay_seconds = parseInt(v) || 0; });
   bindField('hint-after-attempts', (v) => { hint.trigger.after_attempts = parseInt(v) || 0; });
   bindField('hint-style', (v) => { hint.style = v || undefined; });
@@ -272,6 +304,7 @@ function renderConditionBuilder(container, condition, onChange) {
     } else if (newType === BLOCK_PATTERN_TYPE) {
       newCondition.workspace_state = null;
       newCondition.field_constraints = {};
+      newCondition.param_constraints = {};
     } else if (newType === 'workspace_connectedness') {
       newCondition.mode = 'all_connected';
     }
@@ -644,15 +677,24 @@ function bindCheckboxField(id, setter) {
   });
 }
 
-function getHintListTitle(message) {
-  const safeMessage = typeof message === 'string' ? message : String(message ?? '');
-  return `${safeMessage.substring(0, 50)}${safeMessage.length > 50 ? '...' : ''}`;
+function getHintPriority(hint) {
+  return hint?.priority || 1;
 }
 
-function updateHintListTitle(index, message) {
-  const title = document.querySelector(`.list-item[data-index="${index}"] .list-item-title`);
+function getHintTitleText(hint) {
+  const message = typeof hint?.message === 'string' ? hint.message : String(hint?.message ?? '');
+  const snippet = `${message.substring(0, 50)}${message.length > 50 ? '...' : ''}`;
+  return `P${getHintPriority(hint)} — ${snippet}`;
+}
+
+function getHintListTitle(hint) {
+  return escapeHtml(getHintTitleText(hint));
+}
+
+function updateHintListTitle(index, hint) {
+  const title = document.querySelector(`#hint-list .list-item[data-index="${index}"] .list-item-title`);
   if (!title) return;
-  title.textContent = getHintListTitle(message);
+  title.textContent = getHintTitleText(hint);
 }
 
 function getHintDisplayMode(hint) {

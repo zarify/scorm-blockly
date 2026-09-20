@@ -27,7 +27,7 @@
         {
           "name": "Variables",
           "colour": "#A65C81",
-          "blocks": ["variables_get", "variables_set"]
+          "blocks": ["variables_get", "variables_set", "math_change"]
         },
         {
           "name": "Math",

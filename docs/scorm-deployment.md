@@ -127,10 +127,43 @@ The activity communicates with Moodle via these SCORM 1.2 API calls:
 | Call | When | Purpose |
 |------|------|---------|
 | `LMSInitialize("")` | Activity loads | Start SCORM session |
+| `LMSGetValue("cmi.core.lesson_status")` | Activity loads | Keep an existing passed/failed/completed status on re-entry |
+| `LMSGetValue("cmi.core.student_id")` | Activity loads | Scope the browser-side (IndexedDB) copy to one student |
+| `LMSGetValue("cmi.suspend_data")` | Activity loads | Restore the student's saved workspace |
+| `LMSSetValue("cmi.suspend_data", payload)` | ~1s after the student edits, on Check, on tab hide, and on unload | Save the student's workspace |
+| `LMSGetValue("cmi.suspend_data")` | Immediately after each suspend data write | Read the value back to verify the LMS stored it intact; a truncated or altered value lowers the working limit and falls back to IndexedDB |
 | `LMSSetValue("cmi.core.score.raw", score)` | After test run | Report score (0–100) |
 | `LMSSetValue("cmi.core.lesson_status", status)` | After test run | Report "passed" or "failed" |
-| `LMSCommit("")` | After score set | Save data to LMS |
-| `LMSFinish("")` | Page unload | End SCORM session |
+| `LMSCommit("")` | At most once per 10 s while editing, immediately on Check / tab hide / leaving | Save the pending values. A commit is a blocking round-trip in Moodle, so background saves are coalesced; a score and its status share one commit |
+| `LMSFinish("")` | Page hidden for good (`pagehide` without `persisted`) | End SCORM session; skipped when the page only enters the back/forward cache |
+| `LMSInitialize("")` | `pageshow` after a back/forward cache restore | Re-open a session that was finished before the page was cached, so later writes are not dropped |
+
+### Student Progress Persistence
+
+Student workspaces are stored in two layers so a session can survive both a changed device and a large program:
+
+| Layer | Scope | Limit | Used for |
+|-------|-------|-------|----------|
+| `cmi.suspend_data` | Per student attempt, portable across devices, visible in LMS reports | 4096 characters by default (SCORM 1.2 SPM) | The primary record: the newest snapshot that fits |
+| IndexedDB (Moodle origin) | Per browser and device, not visible to the LMS | Effectively unlimited | Full-fidelity copy, and the only copy when the workspace is too large for `suspend_data` |
+
+Behaviour:
+
+- Saving is debounced by one second after the last workspace change, and is also flushed on **Check**, on tab hide (`visibilitychange`), and on `pagehide`; the SCORM session is finished on `pagehide` only (never on `beforeunload`), so a back/forward cache restore keeps reporting, and `pageshow` re-opens the session when it was already finished
+- Saving never runs in the middle of a gesture, and the LMS commit behind it is coalesced to at most one per 10 seconds: in Moodle a commit is a **blocking** request that freezes the tab for the length of the server round-trip, so a student dragging blocks would otherwise feel a hitch after every edit
+- Every write is verified by reading the value back. If the LMS truncates or rejects it, the runtime lowers its working limit, restores the last good snapshot (or clears the field), and falls back to the IndexedDB layer
+- When the workspace only fits in IndexedDB, `cmi.suspend_data` receives a small reference payload (`BS1|activity_id|I|timestamp|`) so the LMS still records that a saved session exists
+- Restores always take the **newest complete** snapshot: the IndexedDB copy on the same browser, or the `suspend_data` snapshot on another device. Partial or truncated states are never restored
+- Payloads are ASCII-only (SCORM 1.2 data model types are ISO 646): non-ASCII field values take a base64 path, and block ids/coordinates are stripped before encoding
+- Saved state is scoped to `activity_id` + `cmi.core.student_id` + the package path, so two activities that reuse a package, or two students on a shared computer, never see each other's work
+- **Reset** discards both layers, so the next launch starts from the configured starting blocks
+- `cmi.core.lesson_status` is only initialised to `incomplete` when the LMS reports no attempt yet; an existing `passed`, `completed`, or `failed` status is left untouched so re-entry does not wipe completion tracking
+
+Capacity in practice (measured, 4096-character default): roughly **100–140 blocks** for typical `print`/`text` programs, and more when the program compresses well. Programs beyond that are kept in IndexedDB only; the student sees a one-time notice in the status bar, and the teacher can raise `ui_settings.suspend_data_limit` for an LMS that accepts more than the SCORM 1.2 minimum (the runtime verifies the write and falls back automatically if the LMS refuses it).
+
+> **Note:** Moodle stores `cmi.suspend_data` per attempt. With **Force new attempt** enabled, each launch starts a fresh attempt and therefore a fresh workspace.
+
+> **Caveats for the browser layer:** IndexedDB is per browser and per device, can be evicted (Safari's 7-day script-writable storage cap, quota pressure, "clear browsing data", private windows), and is invisible to Moodle's reports. It is a safety net for large workspaces, not a replacement for the LMS record. If it is missing, the runtime says so in the status bar and falls back to the `suspend_data` snapshot or the starting blocks.
 
 ### Mastery Score
 
@@ -203,6 +236,14 @@ To update an already-deployed activity:
 - Look for SCORM API errors
 - Verify the activity opens in a popup/new window (not embedded in an iframe with restrictive settings)
 - Check Moodle's SCORM report for the activity
+
+### "Student work is not restored on the next session"
+
+- Confirm the student re-enters the **same attempt** — with **Force new attempt** enabled, Moodle starts a fresh attempt with empty `cmi.suspend_data`
+- A status-bar notice explains the common causes: *"stored in this browser only"* means the program is too large for the LMS, and *"This browser no longer has the saved copy"* means the browser layer was cleared or the student is on another device
+- If the student clicked **Reset**, the saved session was intentionally discarded
+- Verify the package was exported after the config's `activity_id` was finalised — saved state is only restored when the stored `activity_id` matches the current config
+- Check the browser console for `[WorkspacePersistence]` warnings: they report an LMS that truncated or rejected a write, and the runtime lowers its limit automatically
 
 ### "Blockly workspace doesn't load"
 

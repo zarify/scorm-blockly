@@ -14,7 +14,7 @@ Conditions are used in two places:
 | [`block_missing`](#block_missing) | Block type is absent | `block_type` |
 | [`block_connected`](#block_connected) | Two blocks are snapped together vertically | `upper_type`, `lower_type` |
 | [`block_nested`](#block_nested) | Block appears somewhere inside another block's input subtree, with optional scoped descendant value matching | `outer_type`, `inner_type`, `input_name`, `field_name?`, `expected_value?`, `match_mode?`, `regex_flags?` |
-| [`block_pattern`](#block_pattern) | Visual Blockly pattern with wildcard blocks and scoped field constraints | `workspace_state`, `field_constraints?` |
+| [`block_pattern`](#block_pattern) | Visual Blockly pattern with wildcard blocks and scoped field constraints | `workspace_state`, `field_constraints?`, `param_constraints?` |
 | [`block_field_value`](#block_field_value) | Block field matches a value or regex pattern | `block_type`, `field_name`, `expected_value`, `match_mode?`, `regex_flags?` |
 | [`block_count`](#block_count) | Count of a block type is within range | `block_type`, `min`, `max` |
 | [`workspace_connectedness`](#workspace_connectedness) | Enforce one connected program root or forbid loose value blocks | `mode` |
@@ -335,6 +335,7 @@ Passes if the learner workspace matches a visually-authored Blockly pattern work
 |-----------|------|----------|-------------|
 | `workspace_state` | object | ✅ | Serialized Blockly workspace describing the pattern |
 | `field_constraints` | object | No | Optional per-pattern-block field constraints, keyed by pattern block id then field name |
+| `param_constraints` | object | No | Optional parameter count checks, keyed by pattern block id. Only valid on function blocks (`procedures_defnoreturn`, `procedures_defreturn`, `procedures_callnoreturn`, `procedures_callreturn`) |
 
 **How it works:**
 
@@ -344,12 +345,14 @@ Passes if the learner workspace matches a visually-authored Blockly pattern work
   - **`any block(s)`** matches zero or more statement blocks in a chain
   - **`any value`** matches any subtree connected to a value input
 - Optional field constraints are scoped to the exact matched pattern block instance
+- Optional parameter count constraints check how many parameters a function definition (or arguments a call) has, without prescribing the names
 
 This is the most expressive matcher when you need to combine:
 - sequential `next` chains
 - nested statement/value inputs
 - wildcard gaps
 - exact, contains, regex full-match, or regex search checks on a specific matched block
+- function signatures by arity
 
 **Examples:**
 
@@ -377,6 +380,24 @@ This is the most expressive matcher when you need to combine:
   "workspace_state": { "...": "serialized Blockly pattern workspace with controls_repeat_ext -> any block(s) -> text_print -> any block(s)" }
 }
 ```
+
+```json
+// Function definition with any name and exactly two parameters
+{
+  "type": "block_pattern",
+  "workspace_state": { "...": "serialized pattern workspace with one procedures_defnoreturn block" },
+  "param_constraints": {
+    "procedure_block_id": { "count": 2, "comparison": "equals" }
+  }
+}
+```
+
+| `param_constraints` entry | Type | Description |
+|---------------------------|------|-------------|
+| `count` | integer | Parameter (or call argument) count to compare against |
+| `comparison` | string | `"equals"` (default), `"gte"` (at least), or `"lte"` (at most) |
+
+Parameter names stay free: the check counts the parameters of the matched student block, so a pattern authored with `(first, second)` also matches `(x, y)`. Combine with a `NAME` field constraint only when the function name must match too.
 
 **Common field names:**
 

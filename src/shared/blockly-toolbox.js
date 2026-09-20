@@ -48,7 +48,7 @@ export const DEFAULT_TOOLBOX_BLOCK_LIBRARY = {
     'lists_getSublist', 'lists_split', 'lists_sort',
     'lists_reverse',
   ],
-  Variables: ['variables_get', 'variables_set'],
+  Variables: ['variables_get', 'variables_set', 'math_change'],
   Functions: [
     'procedures_defnoreturn', 'procedures_defreturn',
     'procedures_ifreturn', 'procedures_callnoreturn',

@@ -190,7 +190,7 @@ When multiple hints are visible, they're sorted by priority **descending** (high
 | 2–3 | Specific guidance |
 | 4–5 | Critical hints that should appear above others |
 
-Hints with equal priority appear in their original array order.
+Hints with equal priority appear in their original array order — the order shown in the builder's hint list, which can be changed by dragging hints up or down.
 
 ---
 
