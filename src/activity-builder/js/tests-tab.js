@@ -42,6 +42,7 @@ import {
 
 let selectedTestIndex = -1;
 let suppressSelectedTestEditorSync = false;
+let isSyncingTestEditor = false;
 
 const TEST_TYPES = [
   { value: 'stdout_match', label: 'Output/prompt text check' },
@@ -101,12 +102,35 @@ const LIST_ITEM_TYPE_MODES = [
 export function initTestsTab() {
   document.getElementById('btn-add-test').addEventListener('click', addTest);
   onConfigChange(() => {
-    renderTestList();
-    updateWeightIndicator();
-    if (selectedTestIndex >= 0 && !suppressSelectedTestEditorSync) renderTestEditor();
+    // Rendering a selected test can notify again (e.g. the pattern builder
+    // syncing its workspace); ignore nested notifications instead of recursing.
+    if (isSyncingTestEditor) return;
+    // A hidden tab is refreshed when it becomes visible. Rebuilding the list and
+    // the editor (which can inject a pattern workspace) on every edit made
+    // anywhere in the builder is wasted work.
+    if (!isTestsTabVisible()) return;
+    isSyncingTestEditor = true;
+    try {
+      renderTestsTab();
+    } finally {
+      isSyncingTestEditor = false;
+    }
+  });
+  window.addEventListener('tab-activated', (event) => {
+    if (event.detail?.tab === 'tests') renderTestsTab();
   });
   renderTestList();
   updateWeightIndicator();
+}
+
+function isTestsTabVisible() {
+  return document.getElementById('tab-tests')?.classList.contains('active') === true;
+}
+
+function renderTestsTab() {
+  renderTestList();
+  updateWeightIndicator();
+  if (selectedTestIndex >= 0 && !suppressSelectedTestEditorSync) renderTestEditor();
 }
 
 function addTest() {

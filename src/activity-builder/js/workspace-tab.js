@@ -12,6 +12,8 @@ import {
 } from '../../shared/blockly-toolbox.js';
 
 let designerWorkspace = null;
+/** The `starting_blocks` object currently shown in the designer. */
+let loadedStartingBlocks = null;
 
 export function initWorkspaceTab() {
   document.getElementById('btn-save-workspace').addEventListener('click', saveWorkspace);
@@ -89,13 +91,20 @@ function clearWorkspace() {
 function loadWorkspaceFromConfig(cfg) {
   if (!designerWorkspace) return;
 
-  if (cfg.blockly_setup?.starting_blocks) {
-    try {
-      designerWorkspace.clear();
-      Blockly.serialization.workspaces.load(cfg.blockly_setup.starting_blocks, designerWorkspace);
-    } catch (err) {
-      console.warn('[WorkspaceTab] Failed to load starting blocks:', err);
-    }
+  const startingBlocks = cfg.blockly_setup?.starting_blocks ?? null;
+  // Reloading clears the workspace, so it may only happen when the saved
+  // starter blocks actually changed. Config notifications also fire for edits
+  // made in other tabs, and reloading there discarded unsaved designer edits.
+  if (startingBlocks === loadedStartingBlocks) return;
+  loadedStartingBlocks = startingBlocks;
+
+  if (!startingBlocks) return;
+
+  try {
+    designerWorkspace.clear();
+    Blockly.serialization.workspaces.load(startingBlocks, designerWorkspace);
+  } catch (err) {
+    console.warn('[WorkspaceTab] Failed to load starting blocks:', err);
   }
 }
 

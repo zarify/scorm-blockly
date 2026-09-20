@@ -54,7 +54,6 @@ Set the activity metadata, student instructions, and UI settings.
 |---------|---------|-------------|
 | **Show code toggle** | Off | Let students open the generated JavaScript code modal |
 | **Enable hints** | ✅ On | Enable student-facing hints in the runtime |
-| **Max attempts** | Unlimited | ⚠️ Not yet enforced at runtime. The field is in the schema for future use |
 | **Suspend data limit** | 4096 | Characters reserved for saved student work in `cmi.suspend_data`. SCORM 1.2 specifies 4096; raise it only for an LMS known to accept more. Larger programs are also kept in the student's browser via IndexedDB, and each LMS write is verified |
 
 ### Results
@@ -156,7 +155,6 @@ Hints can be **drag-and-dropped** in the list to change their order, exactly lik
    - **workspace_change** — When student modifies blocks (most common)
    - **test_fail** — After a failed test run
    - **manual** — When manually requested with the **💡 Get Hint** button
-   - **timed** — After a time delay (⚠️ not yet implemented at runtime)
 3. Write the **message** shown to the student
 4. Choose the **display mode**:
    - **Hidden until triggered** — The hint stays hidden until it fires

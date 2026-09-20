@@ -121,12 +121,18 @@ export function renderPatternBuilder(container, condition, onChange) {
   });
 
   function syncWorkspaceState() {
-    condition.workspace_state = serializeWorkspace(workspace);
+    const nextState = serializeWorkspace(workspace);
+    // Mounting the builder must not notify: a nested notifyChange while a
+    // listener is still rendering re-enters that listener (see hints/tests tabs).
+    const changed = !isSameWorkspaceState(nextState, condition.workspace_state);
+    condition.workspace_state = nextState;
     if (!condition.workspace_state) {
       condition.field_constraints = {};
       condition.param_constraints = {};
     }
-    onChange(condition);
+    if (changed) {
+      onChange(condition);
+    }
     updateStatus();
   }
 
@@ -325,6 +331,10 @@ function serializeWorkspace(workspace) {
   return workspace.getAllBlocks(false).length > 0
     ? Blockly.serialization.workspaces.save(workspace)
     : null;
+}
+
+function isSameWorkspaceState(a, b) {
+  return JSON.stringify(a ?? null) === JSON.stringify(b ?? null);
 }
 
 function getSelectedBlock(workspace) {

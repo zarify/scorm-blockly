@@ -28,9 +28,6 @@ export function initConfigTab() {
   // UI Settings
   bindCheckbox('cfg-show-code', (val) => { getConfig().ui_settings.show_code_toggle = val; });
   bindCheckbox('cfg-show-hints', (val) => { getConfig().ui_settings.show_hint_panel = val; });
-  bindInput('cfg-max-attempts', (val) => {
-    getConfig().ui_settings.max_attempts = val ? parseInt(val, 10) : null;
-  });
   bindInput('cfg-suspend-data-limit', (val) => {
     getConfig().ui_settings.suspend_data_limit = val
       ? Math.max(512, parseInt(val, 10))
@@ -58,7 +55,6 @@ function populateFromConfig(cfg) {
   document.getElementById('cfg-instructions-main').value = cfg.instructions?.main || '';
   document.getElementById('cfg-show-code').checked = cfg.ui_settings?.show_code_toggle === true;
   document.getElementById('cfg-show-hints').checked = cfg.ui_settings?.show_hint_panel !== false;
-  document.getElementById('cfg-max-attempts').value = cfg.ui_settings?.max_attempts || '';
   document.getElementById('cfg-suspend-data-limit').value = cfg.ui_settings?.suspend_data_limit || '';
   document.getElementById('cfg-require-previous-test-pass').checked = cfg.evaluation?.require_previous_test_pass !== false;
   document.getElementById('cfg-feedback-on-all-pass').value = cfg.evaluation?.feedback_on_all_pass || '';

@@ -638,8 +638,6 @@ The percentage reported to the LMS is:
 lmsScore = Math.round((totalScore / maxScore) * 100)
 ```
 
-> **Note:** The `grading_mode` and `max_score` fields in the config schema are defined but **not yet implemented** at runtime. Currently, the LMS score is still reported as a derived percentage based on points earned divided by total available points.
-
 ---
 
 ## Design Patterns

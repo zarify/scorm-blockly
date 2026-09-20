@@ -15,10 +15,8 @@
     ]
   },
   "ui_settings": {
-    "theme": "default",
     "show_code_toggle": true,
-    "show_hint_panel": true,
-    "max_attempts": null
+    "show_hint_panel": true
   },
   "blockly_setup": {
     "toolbox": {
@@ -26,28 +24,41 @@
         {
           "name": "Loops",
           "colour": "#5CA65C",
-          "blocks": ["controls_for", "controls_repeat_ext", "controls_whileUntil"]
+          "blocks": [
+            "controls_for",
+            "controls_repeat_ext",
+            "controls_whileUntil"
+          ]
         },
         {
           "name": "Math",
           "colour": "#5C68A6",
-          "blocks": ["math_number", "math_arithmetic"]
+          "blocks": [
+            "math_number",
+            "math_arithmetic"
+          ]
         },
         {
           "name": "Text",
           "colour": "#5CA68D",
-          "blocks": ["text", "text_print"]
+          "blocks": [
+            "text",
+            "text_print"
+          ]
         },
         {
           "name": "Variables",
           "colour": "#A65C81",
-          "blocks": ["variables_get", "variables_set", "math_change"]
+          "blocks": [
+            "variables_get",
+            "variables_set",
+            "math_change"
+          ]
         }
       ]
     },
     "starting_blocks": null,
-    "max_blocks": null,
-    "disabled_blocks": []
+    "max_blocks": null
   },
   "hints": [
     {
@@ -57,8 +68,14 @@
         "conditions": {
           "type": "all",
           "conditions": [
-            { "type": "block_missing", "block_type": "controls_for" },
-            { "type": "block_missing", "block_type": "controls_repeat_ext" }
+            {
+              "type": "block_missing",
+              "block_type": "controls_for"
+            },
+            {
+              "type": "block_missing",
+              "block_type": "controls_repeat_ext"
+            }
           ]
         }
       },
@@ -77,11 +94,20 @@
             {
               "type": "any",
               "conditions": [
-                { "type": "block_exists", "block_type": "controls_for" },
-                { "type": "block_exists", "block_type": "controls_repeat_ext" }
+                {
+                  "type": "block_exists",
+                  "block_type": "controls_for"
+                },
+                {
+                  "type": "block_exists",
+                  "block_type": "controls_repeat_ext"
+                }
               ]
             },
-            { "type": "block_missing", "block_type": "text_print" }
+            {
+              "type": "block_missing",
+              "block_type": "text_print"
+            }
           ]
         }
       },
@@ -103,8 +129,6 @@
     }
   ],
   "evaluation": {
-    "grading_mode": "weighted",
-    "max_score": 100,
     "test_cases": [
       {
         "id": "test_output",
@@ -120,8 +144,16 @@
         "conditions": {
           "type": "any",
           "conditions": [
-            { "type": "block_exists", "block_type": "controls_for", "min_count": 1 },
-            { "type": "block_exists", "block_type": "controls_repeat_ext", "min_count": 1 }
+            {
+              "type": "block_exists",
+              "block_type": "controls_for",
+              "min_count": 1
+            },
+            {
+              "type": "block_exists",
+              "block_type": "controls_repeat_ext",
+              "min_count": 1
+            }
           ]
         },
         "points": 2,
@@ -133,8 +165,18 @@
         "conditions": {
           "type": "any",
           "conditions": [
-            { "type": "block_nested", "outer_type": "controls_for", "inner_type": "text_print", "input_name": "DO" },
-            { "type": "block_nested", "outer_type": "controls_repeat_ext", "inner_type": "text_print", "input_name": "DO" }
+            {
+              "type": "block_nested",
+              "outer_type": "controls_for",
+              "inner_type": "text_print",
+              "input_name": "DO"
+            },
+            {
+              "type": "block_nested",
+              "outer_type": "controls_repeat_ext",
+              "inner_type": "text_print",
+              "input_name": "DO"
+            }
           ]
         },
         "points": 2,

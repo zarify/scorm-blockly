@@ -55,7 +55,7 @@ This produces a functional SCORM package with the bundled student runtime includ
 | Setting | Recommended Value | Notes |
 |---------|-------------------|-------|
 | **Grading method** | Highest grade | Students may attempt multiple times |
-| **Maximum grade** | 100 | Matches the SCORM max_score |
+| **Maximum grade** | 100 | Matches the 0–100 percentage the runtime reports |
 
 #### Attempts Settings
 
@@ -158,8 +158,9 @@ Behaviour:
 - Saved state is scoped to `activity_id` + `cmi.core.student_id` + the package path, so two activities that reuse a package, or two students on a shared computer, never see each other's work
 - **Reset** discards both layers, so the next launch starts from the configured starting blocks
 - `cmi.core.lesson_status` is only initialised to `incomplete` when the LMS reports no attempt yet; an existing `passed`, `completed`, or `failed` status is left untouched so re-entry does not wipe completion tracking
+- Each Check reports the **best** result of the session: a student who passes and then keeps experimenting cannot lose the pass or the score to a later failed Check, and a pass and score the LMS already holds are adopted when the activity loads. Pair it with Moodle's **Highest grade** method (below) so the gradebook agrees
 
-Capacity in practice (measured, 4096-character default): roughly **100–140 blocks** for typical `print`/`text` programs, and more when the program compresses well. Programs beyond that are kept in IndexedDB only; the student sees a one-time notice in the status bar, and the teacher can raise `ui_settings.suspend_data_limit` for an LMS that accepts more than the SCORM 1.2 minimum (the runtime verifies the write and falls back automatically if the LMS refuses it).
+Capacity in practice (measured, 4096-character default): a plain sequence of `print` statements fits about **240 blocks** (120 prints), a program of variables and nested loops fewer, and one that compresses well more. Programs beyond that are kept in IndexedDB only; the student sees a one-time notice in the status bar, and the teacher can raise `ui_settings.suspend_data_limit` for an LMS that accepts more than the SCORM 1.2 minimum (the runtime verifies the write and falls back automatically if the LMS refuses it).
 
 > **Note:** Moodle stores `cmi.suspend_data` per attempt. With **Force new attempt** enabled, each launch starts a fresh attempt and therefore a fresh workspace.
 

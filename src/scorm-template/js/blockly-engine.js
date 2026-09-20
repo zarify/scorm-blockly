@@ -101,26 +101,12 @@ export function getWorkspace() {
 }
 
 /**
- * Serialize the current workspace state as JSON.
- * @returns {object}
+ * Serialize the current workspace state for persistence.
+ * @returns {object|null}
  */
 export function serializeWorkspace() {
   if (!workspace) return null;
   return Blockly.serialization.workspaces.save(workspace);
-}
-
-/**
- * Clear the workspace.
- */
-export function clearWorkspace() {
-  if (workspace) workspace.clear();
-}
-
-/**
- * Resize the workspace to fit its container. Call on window resize.
- */
-export function resizeWorkspace() {
-  if (workspace) Blockly.svgResize(workspace);
 }
 
 // Re-export Blockly for use by other modules that need it

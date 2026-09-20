@@ -132,10 +132,8 @@ function createBaseConfig(source) {
         : [],
     },
     ui_settings: {
-      theme: asStringOr(uiSettings.theme, 'default'),
       show_code_toggle: uiSettings.show_code_toggle === true,
       show_hint_panel: uiSettings.show_hint_panel !== false,
-      max_attempts: asOptionalInteger(uiSettings.max_attempts, null),
       // SCORM 1.2 specifies 4096 characters for cmi.suspend_data.
       suspend_data_limit: asOptionalInteger(uiSettings.suspend_data_limit, SUSPEND_DATA_DEFAULT_LIMIT)
         ?? SUSPEND_DATA_DEFAULT_LIMIT,
@@ -144,14 +142,9 @@ function createBaseConfig(source) {
       toolbox: { categories: [] },
       starting_blocks: isObjectLike(blocklySetup.starting_blocks) ? blocklySetup.starting_blocks : null,
       max_blocks: asOptionalInteger(blocklySetup.max_blocks, null),
-      disabled_blocks: Array.isArray(blocklySetup.disabled_blocks)
-        ? blocklySetup.disabled_blocks.filter(isNonEmptyString)
-        : [],
     },
     hints: [],
     evaluation: {
-      grading_mode: asStringOr(evaluation.grading_mode, 'weighted'),
-      max_score: asOptionalInteger(evaluation.max_score, 100) ?? 100,
       feedback_on_all_pass: asStringOr(evaluation.feedback_on_all_pass, ''),
       require_previous_test_pass: evaluation.require_previous_test_pass !== false,
       test_cases: [],

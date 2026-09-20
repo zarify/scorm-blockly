@@ -48,9 +48,21 @@ export function normalizeFieldValueCaseSensitivity(caseSensitive, regexFlags = '
   return !String(regexFlags ?? '').includes('i');
 }
 
+/**
+ * Flags kept in a config: everything except the two that model something else
+ * and the two that make a RegExp stateful.
+ *
+ * `i` is dropped because case sensitivity is its own setting, and `g`/`y` are
+ * dropped because a matcher has to answer the same question many times over —
+ * a global RegExp advances `lastIndex` on every `test()`, so the same value
+ * would match, then not match, then match again, and a sticky one only ever
+ * matches at `lastIndex`, which silently defeats a search.
+ */
+const DROPPED_REGEX_FLAGS = new Set(['i', 'g', 'y']);
+
 export function getCanonicalRegexFlags(regexFlags = '') {
   return [...new Set(String(regexFlags ?? '').split('').filter(Boolean))]
-    .filter((flag) => flag !== 'i')
+    .filter((flag) => !DROPPED_REGEX_FLAGS.has(flag))
     .join('');
 }
 

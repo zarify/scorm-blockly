@@ -14,7 +14,6 @@ import { evaluateCondition } from './workspace-inspector.js';
  * @property {Map<string, number>} firstTriggered - Hint ID → timestamp when condition first became true
  * @property {Set<string>} triggered - Hint IDs that have been triggered at least once
  * @property {number} attemptCount - Number of test runs (failed) so far
- * @property {number} elapsedSeconds - Seconds since activity was opened
  */
 
 /**
@@ -22,7 +21,7 @@ import { evaluateCondition } from './workspace-inspector.js';
  * @param {Array} hints - Hint config objects from activity_config.json
  * @param {object} workspace - Blockly workspace instance
  * @param {HintState} state - Current hint state
- * @param {string} event - Current trigger event ('workspace_change' | 'test_fail' | 'manual' | 'timed')
+ * @param {string} event - Current trigger event ('workspace_change' | 'test_fail' | 'manual')
  * @returns {{ visibleHints: Array<{ id: string, message: string, priority: number }>, nextEvaluationDelayMs: number | null }}
  */
 export function evaluateHints(hints, workspace, state, event) {
@@ -121,7 +120,6 @@ export function createHintState() {
     firstTriggered: new Map(),
     triggered: new Set(),
     attemptCount: 0,
-    elapsedSeconds: 0,
   };
 }
 

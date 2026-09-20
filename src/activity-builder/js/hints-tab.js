@@ -49,7 +49,6 @@ const TRIGGER_EVENTS = [
   { value: 'workspace_change', label: 'Workspace changes' },
   { value: 'test_fail', label: 'Test run fails' },
   { value: 'manual', label: 'Student requests hint' },
-  { value: 'timed', label: 'After time delay' },
 ];
 
 const HINT_DISPLAY_MODES = [
@@ -63,6 +62,9 @@ export function initHintsTab() {
   onConfigChange(() => {
     const config = getConfig();
     if (config === lastConfigRef) return;
+    // Claim the config before rendering: rendering can notify again (e.g. the
+    // pattern builder syncing its workspace) and must not re-enter this handler.
+    lastConfigRef = config;
 
     const hints = config.hints || [];
     if (selectedHintIndex >= hints.length) {
@@ -71,7 +73,6 @@ export function initHintsTab() {
 
     renderHintList();
     renderHintEditor();
-    lastConfigRef = config;
   });
   renderHintList();
 }

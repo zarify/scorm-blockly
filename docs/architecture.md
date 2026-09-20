@@ -226,6 +226,8 @@ Student clicks "Check"
 
 ### Web Worker Communication
 
+Grading runs the program in a Worker and kills it after 5 seconds:
+
 ```
 Main Thread                          Web Worker (Blob)
 ──────────                           ──────────────────
@@ -243,6 +245,14 @@ Main Thread                          Web Worker (Blob)
   Clear timeout
   Terminate worker
 ```
+
+An interactive Run uses the same Worker mechanism with no deadline, because the
+student is part of the loop: output streams out as it is printed, an input prompt
+is a message round-trip (`input` → `input-response`), and cancelling terminates
+the Worker instead of waiting for the program to reach a print or a prompt. When
+there is no Worker (Node, or a browser without one) the run falls back to the
+main thread, where cancellation is cooperative and only takes effect at an I/O
+point.
 
 ---
 

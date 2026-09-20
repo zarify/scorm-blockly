@@ -21,6 +21,59 @@ npm run build
 | `npm run build:builder` | Build Activity Builder only |
 | `npm run export` | Create SCORM `.zip` from the built template |
 | `npm run dev` | Dev server with live rebuild (port 3000) |
+| `npm test` | Run the logic suite (Node's built-in runner, no dependencies) |
+| `npm run test:browser` | Build and run the browser suite (Playwright) |
+
+## Tests
+
+```bash
+npm test                                 # logic suite (450+ tests, ~1s)
+npm run test:browser                     # browser suite (builds first)
+node --test test/scorm-wrapper.test.js   # one file
+```
+
+### Logic suite (`test/`)
+
+Runs on Node's built-in test runner with no test framework, no DOM emulation
+and no network. Tests import `src/` directly, so nothing has to be built first.
+
+```
+test/
+├── helpers/                  # shared fixtures
+│   ├── lms.js                # fake Moodle-shaped SCORM 1.2 runtime (write rejection,
+│   │                         #   truncation, commit snapshots, frame nesting)
+│   ├── blockly.js            # real headless Blockly workspaces (no DOM needed)
+│   ├── config.js             # minimal valid activity config + deep-merge overrides
+│   └── fresh.js              # fresh module instance for module-scope session state
+└── *.test.js                 # one file per module
+```
+
+What it is aimed at: the edges rather than the happy path. Legacy config shapes
+and unknown keys, boundary values (size limits, score thresholds, empty and
+oversized input), partial or malformed input, precedence between competing
+fields, error paths that must not throw, and the cross-module contracts the
+runtime depends on (a config that validates must also normalise, grade and
+persist). Where behaviour is genuinely a contract — an LMS that rejects a write,
+a returning student whose `passed` status must survive re-entry, a
+`cmi.suspend_data` write that gets truncated — the fake LMS reproduces it.
+
+### Browser suite (`test/browser/`)
+
+Serves `dist/` and drives it with Playwright, for the parts that only exist in a
+browser: `Blockly.inject`, the builder's tab rendering and import/export, and
+the student runtime against a mock SCORM API (which it also uses to seed
+`cmi.suspend_data` and check that a saved workspace comes back).
+
+It uses the Chrome already on the machine and needs no download. To use
+Playwright's own Chromium instead, run `npx playwright install chromium`; set
+`PLAYWRIGHT_CHANNEL` to force a channel. When no browser can be launched the
+browser tests skip rather than fail, so `npm test` stays usable anywhere.
+
+Still not covered: the *grading* Worker path in `test-runner.js` and its
+five-second deadline (Node has no `Worker`, so the logic suite exercises the
+direct-execution fallback, and the browser suite does not grade a program that
+loops). The interactive Worker path — output streaming, the prompt round-trip,
+and terminating on cancel — is covered by the browser suite.
 
 ## Workflow
 
@@ -68,7 +121,7 @@ Each activity is defined by a single JSON config file (`activity_config.json`) w
 
 - **metadata** — Activity ID, title, version, description
 - **instructions** — Main instruction text + ordered steps
-- **ui_settings** — Theme, show/hide toggles, max attempts
+- **ui_settings** — Show/hide toggles and the suspend data limit
 - **blockly_setup** — Toolbox categories/blocks, starter blocks, max blocks
 - **hints** — Configurable hints triggered by workspace conditions or test results
 - **evaluation** — Test cases with four assertion types
@@ -93,7 +146,6 @@ When the student toolbox includes Blockly procedure call blocks, the **Functions
 | `workspace_change` | Evaluates when student modifies blocks (debounced) |
 | `test_fail` | Shown after failed test runs |
 | `manual` | Student clicks "Get Hint" |
-| `timed` | After inactivity timeout |
 
 ### Hint Conditions
 
@@ -111,7 +163,9 @@ In the builder UI, `block_pattern` is now the preferred authoring path for conne
 
 ## Architecture
 
-The SCORM package runs entirely client-side in the student's browser. Code execution happens in a Web Worker with a 5-second timeout to prevent infinite loop freezes. Grades are reported to Moodle via the SCORM 1.2 API.
+The SCORM package runs entirely client-side in the student's browser. Grades are reported to Moodle via the SCORM 1.2 API.
+
+Code runs in a Web Worker in both directions, for different reasons. A **Check** is graded with a 5-second deadline, because there is no one to wait for: a runaway program must not hold up the result. A **Run** has no deadline at all — the student may sit at an input prompt for as long as they like, and a Worker parked on an answer costs nothing — but the page can still cancel it outright, so a program in a long loop stops the moment the student presses Escape. In both cases the loop trap bounds a runaway program (10,000 loop iterations and function calls, shared).
 
 The Activity Builder is also fully client-side — no server needed. It bundles Blockly for visual workspace editing and exports configs as JSON or complete SCORM packages as `.zip` files.
 

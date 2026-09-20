@@ -133,12 +133,10 @@ export function createSeededToolboxCategories(blockTypes) {
  * @returns {string[]}
  */
 export function getBlockTypesFromWorkspaceState(Blockly, workspaceState) {
-  if (!workspaceState) return [];
-
-  const workspace = new Blockly.Workspace();
+  const workspace = openWorkspaceState(Blockly, workspaceState);
+  if (!workspace) return [];
 
   try {
-    Blockly.serialization.workspaces.load(workspaceState, workspace);
     return [...new Set(workspace.getAllBlocks(false).map((block) => block.type))];
   } finally {
     if (typeof workspace.dispose === 'function') {
@@ -158,19 +156,10 @@ export function getBlockTypesFromWorkspaceState(Blockly, workspaceState) {
  * }}
  */
 export function getWorkspaceBlockMetadata(Blockly, workspaceState) {
-  if (!workspaceState) {
-    return {
-      blockTypes: [],
-      inputNamesByBlockType: {},
-      fieldNamesByBlockType: {},
-    };
-  }
-
-  const workspace = new Blockly.Workspace();
+  const workspace = openWorkspaceState(Blockly, workspaceState);
+  if (!workspace) return emptyWorkspaceMetadata();
 
   try {
-    Blockly.serialization.workspaces.load(workspaceState, workspace);
-
     /** @type {Map<string, Set<string>>} */
     const inputNamesByBlockType = new Map();
     /** @type {Map<string, Set<string>>} */
@@ -248,28 +237,6 @@ export function filterSupportedBlockTypes(Blockly, blockTypes, context) {
   }
 
   return supported;
-}
-
-/**
- * Filter a category-based block library to the blocks supported at runtime.
- * @param {typeof import('blockly')} Blockly
- * @param {Record<string, string[]>} blockLibrary
- * @param {string} context
- * @returns {Record<string, string[]>}
- */
-export function getSupportedBlockLibrary(Blockly, blockLibrary, context) {
-  return Object.fromEntries(
-    Object.entries(blockLibrary)
-      .map(([categoryName, blockTypes]) => {
-        const supportedBlocks = filterSupportedBlockTypes(
-          Blockly,
-          blockTypes,
-          `${context}: ${categoryName}`,
-        );
-        return supportedBlocks.length > 0 ? [[categoryName, supportedBlocks]] : [];
-      })
-      .flat(),
-  );
 }
 
 /**
@@ -362,6 +329,53 @@ function warnUnsupportedBlockTypes(context, blockTypes) {
   console.warn(
     `[BlocklyToolbox] Ignoring unsupported block type(s) in ${context}: ${uniqueBlockTypes.join(', ')}`,
   );
+}
+
+/**
+ * Load a saved workspace state into a throwaway workspace, or null when there
+ * is nothing to load or the state cannot be read.
+ *
+ * A starting workspace saved by an older build can name a block this runtime no
+ * longer registers, which makes Blockly's loader throw. Reading block metadata
+ * happens while rendering the builder's condition editors, so letting that
+ * error escape would blank the editor instead of just losing the suggestions.
+ * @param {typeof import('blockly')} Blockly
+ * @param {object|null} workspaceState
+ * @returns {import('blockly').Workspace|null}
+ */
+function openWorkspaceState(Blockly, workspaceState) {
+  if (!workspaceState) return null;
+
+  const workspace = new Blockly.Workspace();
+
+  try {
+    Blockly.serialization.workspaces.load(workspaceState, workspace);
+    return workspace;
+  } catch (error) {
+    warnUnreadableWorkspaceState(error);
+    if (typeof workspace.dispose === 'function') {
+      workspace.dispose();
+    }
+    return null;
+  }
+}
+
+function emptyWorkspaceMetadata() {
+  return {
+    blockTypes: [],
+    inputNamesByBlockType: {},
+    fieldNamesByBlockType: {},
+  };
+}
+
+const warnedUnreadableWorkspaceStates = new Set();
+
+function warnUnreadableWorkspaceState(error) {
+  const reason = String(error?.message ?? error);
+  if (warnedUnreadableWorkspaceStates.has(reason)) return;
+
+  warnedUnreadableWorkspaceStates.add(reason);
+  console.warn(`[BlocklyToolbox] Ignoring an unreadable starting workspace: ${reason}`);
 }
 
 function shouldUseDynamicProcedureCategory(blockTypes) {

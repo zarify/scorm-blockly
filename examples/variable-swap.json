@@ -16,10 +16,8 @@
     ]
   },
   "ui_settings": {
-    "theme": "default",
     "show_code_toggle": true,
-    "show_hint_panel": true,
-    "max_attempts": null
+    "show_hint_panel": true
   },
   "blockly_setup": {
     "toolbox": {
@@ -27,23 +25,32 @@
         {
           "name": "Variables",
           "colour": "#A65C81",
-          "blocks": ["variables_get", "variables_set", "math_change"]
+          "blocks": [
+            "variables_get",
+            "variables_set",
+            "math_change"
+          ]
         },
         {
           "name": "Math",
           "colour": "#5C68A6",
-          "blocks": ["math_number", "math_arithmetic"]
+          "blocks": [
+            "math_number",
+            "math_arithmetic"
+          ]
         },
         {
           "name": "Text",
           "colour": "#5CA68D",
-          "blocks": ["text", "text_print"]
+          "blocks": [
+            "text",
+            "text_print"
+          ]
         }
       ]
     },
     "starting_blocks": null,
-    "max_blocks": null,
-    "disabled_blocks": []
+    "max_blocks": null
   },
   "hints": [
     {
@@ -86,8 +93,6 @@
     }
   ],
   "evaluation": {
-    "grading_mode": "weighted",
-    "max_score": 100,
     "test_cases": [
       {
         "id": "test_a_value",
