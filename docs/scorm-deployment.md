@@ -134,8 +134,9 @@ The activity communicates with Moodle via these SCORM 1.2 API calls:
 | `LMSGetValue("cmi.suspend_data")` | Immediately after each suspend data write | Read the value back to verify the LMS stored it intact; a truncated or altered value lowers the working limit and falls back to IndexedDB |
 | `LMSSetValue("cmi.core.score.raw", score)` | After test run | Report score (0–100) |
 | `LMSSetValue("cmi.core.lesson_status", status)` | After test run | Report "passed" or "failed" |
-| `LMSCommit("")` | After each set | Save data to LMS |
-| `LMSFinish("")` | Page hide/unload | End SCORM session (skipped when the page only enters bfcache) |
+| `LMSCommit("")` | At most once per 10 s while editing, immediately on Check / tab hide / leaving | Save the pending values. A commit is a blocking round-trip in Moodle, so background saves are coalesced; a score and its status share one commit |
+| `LMSFinish("")` | Page hidden for good (`pagehide` without `persisted`) | End SCORM session; skipped when the page only enters the back/forward cache |
+| `LMSInitialize("")` | `pageshow` after a back/forward cache restore | Re-open a session that was finished before the page was cached, so later writes are not dropped |
 
 ### Student Progress Persistence
 
@@ -148,7 +149,8 @@ Student workspaces are stored in two layers so a session can survive both a chan
 
 Behaviour:
 
-- Saving is debounced by one second after the last workspace change, and is also flushed on **Check**, on tab hide (`visibilitychange`), and on page hide/unload
+- Saving is debounced by one second after the last workspace change, and is also flushed on **Check**, on tab hide (`visibilitychange`), and on `pagehide`; the SCORM session is finished on `pagehide` only (never on `beforeunload`), so a back/forward cache restore keeps reporting, and `pageshow` re-opens the session when it was already finished
+- Saving never runs in the middle of a gesture, and the LMS commit behind it is coalesced to at most one per 10 seconds: in Moodle a commit is a **blocking** request that freezes the tab for the length of the server round-trip, so a student dragging blocks would otherwise feel a hitch after every edit
 - Every write is verified by reading the value back. If the LMS truncates or rejects it, the runtime lowers its working limit, restores the last good snapshot (or clears the field), and falls back to the IndexedDB layer
 - When the workspace only fits in IndexedDB, `cmi.suspend_data` receives a small reference payload (`BS1|activity_id|I|timestamp|`) so the LMS still records that a saved session exists
 - Restores always take the **newest complete** snapshot: the IndexedDB copy on the same browser, or the `suspend_data` snapshot on another device. Partial or truncated states are never restored

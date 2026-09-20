@@ -39,8 +39,9 @@ export async function exportSCORM(config) {
   // Add the CSS
   zip.file('css/style.css', runtimeAssets.styleCss);
 
-  // Add the real student runtime bundle.
-  zip.file('js/app.bundle.js', runtimeAssets.appBundleJs);
+  // Add the real student runtime bundle. Development builds reference a
+  // source map that is not shipped in the package, which 404s in the LMS console.
+  zip.file('js/app.bundle.js', withoutSourceMapReference(runtimeAssets.appBundleJs));
 
   const content = await zip.generateAsync({
     type: 'blob',
@@ -83,6 +84,17 @@ async function fetchRuntimeAssets() {
   } catch {
     return null;
   }
+}
+
+/**
+ * Drop the trailing `sourceMappingURL` comment esbuild adds to development
+ * bundles: the package ships no map, so the comment only produces a 404 in the
+ * LMS console.
+ * @param {string} js
+ * @returns {string}
+ */
+function withoutSourceMapReference(js) {
+  return js.replace(/\n?\/\/# sourceMappingURL=\S*[ \t]*\n?$/, '\n');
 }
 
 function hasRuntimeAssets(value) {

@@ -154,7 +154,9 @@ app.js init()
       ├── btn-check → runTests() → reportScore() → updateUI()
       ├── btn-reset → clearWorkspace()
       ├── btn-code-toggle → show/hide generated JS
-      └── beforeunload → scorm.terminate()
+      ├── pagehide → persistence.persistNow(), then scorm.terminate()
+      │   └── Skipped when the page only enters the back/forward cache
+      └── pageshow (restored from bfcache) → scorm.resume()
 ```
 
 ### `workspace-state-codec.js`

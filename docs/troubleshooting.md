@@ -158,6 +158,38 @@ Common differences between local preview and Moodle:
 | **File paths** | Relative to filesystem | Relative to SCORM package | All paths in the package are relative |
 | **Browser popups** | Allowed | May be blocked | Configure Moodle SCORM display settings |
 
+### Console warns about a synchronous XMLHttpRequest, and dragging feels jerky
+
+```
+Synchronous XMLHttpRequest on the main thread is deprecated …
+```
+
+That warning is Moodle's, not the package's: `mod/scorm/request.js` sends every SCORM data write with `httpReq.open("POST", url, false)` — a **synchronous** XHR to `mod/scorm/datamodel.php`. The tab freezes for the whole server round-trip (plus Moodle's grade recalculation for that user), which is what makes dragging and editing feel jerky on a busy or under-provisioned server.
+
+There is no way to remove the warning without patching Moodle core. What the runtime controls is how often it puts you on that path:
+
+- Background saves from editing are coalesced: one workspace write and one commit per burst of edits, and never more than one commit per 10 seconds
+- A save that comes due while the student is dragging a block is deferred until the gesture ends, so the freeze cannot land mid-drag
+- **Check**, tab hide and leaving the page flush immediately instead of waiting, so nothing is lost by the coalescing
+
+To confirm the cost is the server leg, watch a `datamodel.php` POST in DevTools → Network: the tab is frozen for exactly that request's duration. If it is slow, look at PHP-FPM/DB load and at `$CFG->cachejs`/opcache; the package cannot make a slow round-trip fast.
+
+### Moodle warns that your Internet connection is unreliable
+
+The popup *"The SCORM player has determined that your Internet connection is unreliable or has been interrupted"* is Moodle's own SCORM connectivity watchdog. It does not have to mean the connection dropped, and the package cannot switch it off — it runs in the player page, next to the SCO.
+
+- Moodle arms the watchdog for every SCORM activity: `\core\session\manager::keepalive('networkdropped', 'mod_scorm', 30, 10)` in `mod/scorm/player.php`, implemented by the `core/network` AMD module. It posts `core_session_touch` to `/lib/ajax/service.php` every **30 seconds** with a **10-second** timeout, and raises the alert after the **first** call that fails or does not answer in time. The `Starting Moodle session keep-alive.` console line is that watchdog starting.
+- The SCO shares the player page's main thread, and every SCORM write is a blocking request (`mod/scorm/request.js` posts with a synchronous XHR). A write that stalls freezes the tab, and the watchdog counts the late callback as a timeout. The runtime keeps its exposure small: background commits are coalesced and throttled to one per 10 seconds, a save that comes due mid-drag waits for the gesture to end, and the session is never torn down on `beforeunload`.
+- With the popup on screen, check F12 → Network:
+  - The `core_session_touch` POST beside it. `(canceled)`/status `0`, a 4xx/5xx, or a duration near 10,000 ms is the trigger; an instant 200 means nothing reached the browser in time — i.e. the tab, not the network, was blocked.
+  - The `datamodel.php` POSTs the activity itself makes. Commit round-trips of several seconds mean the server, not the student, is the bottleneck.
+- Server-side suspects, in order: PHP-FPM/DB load (common on a development instance), the Moodle session lock held by a concurrent request for the same user (Moodle only skips that lock when `$CFG->enable_read_only_sessions` is on), an already expired `sessiontimeout` for the user, and a browser extension or ad blocker blocking or delaying the POST — retest in a clean profile.
+- To rule the package out, leave the activity open and idle for a few minutes: this runtime does no periodic work at all. Requests only come from real edits, **Check**, tab hide, and leaving the page.
+
+### Console shows `Source Map URL: app.bundle.js.map` failing with 404
+
+Packages exported by the Activity Builder used to embed the development bundle, whose last line pointed at `app.bundle.js.map` — a file that is never part of a package. The error is harmless, and exports now strip that reference (the production `npm run export` bundle never had it). Rebuild and re-export if you still see it.
+
 ### Hints not appearing
 
 1. **Check `show_hint_panel`** — Must be `true` (or omitted, defaults to true) in `ui_settings`

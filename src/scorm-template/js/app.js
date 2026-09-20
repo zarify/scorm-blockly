@@ -90,18 +90,31 @@ async function init() {
     if (ws) Blockly.svgResize(ws);
   });
 
-  // 8. Persist on the events browsers actually fire when a page goes away
-  window.addEventListener('beforeunload', () => {
-    flushWorkspaceSave();
-    scorm.terminate();
-  });
+  // 8. Persist on the events browsers actually fire when a page goes away.
+  //    `pagehide` alone covers reloads, navigation and tab close. The session
+  //    must not be finished on `beforeunload`: browsers may still move the page
+  //    into the back/forward cache, and a finished session makes every later
+  //    write a silent no-op after the student navigates back.
   window.addEventListener('pagehide', (event) => {
     flushWorkspaceSave();
-    // Keep the SCORM session alive when the page is only entering bfcache.
-    if (!event.persisted) scorm.terminate();
+    if (event.persisted) {
+      // Inside the back/forward cache no timer will run, so the pending server
+      // write has to happen now.
+      scorm.flushPendingWrites();
+      return;
+    }
+    scorm.terminate();
+  });
+  window.addEventListener('pageshow', (event) => {
+    // Restored from the back/forward cache: the page instance survives, so the
+    // SCORM session has to be re-opened when it was already finished.
+    if (!event.persisted || scorm.isPreviewMode() || scorm.resume()) return;
+    showStatus('Lost the connection to the LMS. Reload the page to keep saving progress.', 'warning');
   });
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') flushWorkspaceSave();
+    if (document.visibilityState !== 'hidden') return;
+    flushWorkspaceSave();
+    scorm.flushPendingWrites();
   });
 
   if (restoreResult.restored) {
@@ -162,6 +175,13 @@ function scheduleWorkspaceSave() {
   clearTimeout(workspaceSaveTimer);
   workspaceSaveTimer = setTimeout(() => {
     workspaceSaveTimer = null;
+    // Storing to the LMS blocks the tab for the length of the request. A student
+    // who grabs the next block inside the debounce window would feel that as a
+    // hitch in the middle of the gesture, so wait for the gesture to end.
+    if (getWorkspace()?.isDragging()) {
+      scheduleWorkspaceSave();
+      return;
+    }
     saveWorkspace();
   }, WORKSPACE_SAVE_DEBOUNCE_MS);
 }
