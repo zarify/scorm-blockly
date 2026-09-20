@@ -47,7 +47,6 @@ test('a fresh hint state is empty and shares nothing with the next one', () => {
   assert.deepEqual([...state.firstTriggered.keys()], []);
   assert.deepEqual([...state.triggered], []);
   assert.equal(state.attemptCount, 0);
-  assert.equal(state.elapsedSeconds, 0);
 
   state.active.add('a');
   state.consumed.add('b');
@@ -156,6 +155,7 @@ test('a workspace hint and a failed-test hint stay in their own lanes', () => {
 
   assert.deepEqual(visibleIds(evaluateHints(hints, workspaceOf(), state, 'workspace_change')), ['on_change']);
   assert.deepEqual(visibleIds(evaluateHints(hints, workspaceOf(), state, 'test_fail')), ['on_fail']);
+  // An event the runtime never fires (the retired `timed` trigger) shows nothing.
   assert.deepEqual(visibleIds(evaluateHints(hints, workspaceOf(), state, 'timed')), []);
 });
 

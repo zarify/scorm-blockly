@@ -42,7 +42,7 @@ export const VALID_CONDITION_TYPES = [
   'block_field_value', 'block_count', 'workspace_connectedness',
   'workspace_empty', 'all', 'any', 'none', BLOCK_PATTERN_TYPE,
 ];
-export const VALID_HINT_EVENTS = ['workspace_change', 'test_fail', 'manual', 'timed'];
+export const VALID_HINT_EVENTS = ['workspace_change', 'test_fail', 'manual'];
 
 registerBlockPatternBlocks(Blockly);
 

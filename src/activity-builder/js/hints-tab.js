@@ -49,7 +49,6 @@ const TRIGGER_EVENTS = [
   { value: 'workspace_change', label: 'Workspace changes' },
   { value: 'test_fail', label: 'Test run fails' },
   { value: 'manual', label: 'Student requests hint' },
-  { value: 'timed', label: 'After time delay' },
 ];
 
 const HINT_DISPLAY_MODES = [

@@ -531,7 +531,7 @@ test('a draft hint fills in a usable trigger and per-index defaults', () => {
       {
         id: 'h9',
         trigger: {
-          event: 'timed',
+          event: 'manual',
           after_attempts: 3,
           invalidate_on_condition_false: true,
         },
@@ -543,7 +543,7 @@ test('a draft hint fills in a usable trigger and per-index defaults', () => {
     ],
   }).config.hints[0];
 
-  assert.equal(explicit.trigger.event, 'timed');
+  assert.equal(explicit.trigger.event, 'manual');
   assert.equal(explicit.trigger.after_attempts, 3);
   assert.equal(explicit.trigger.invalidate_on_condition_false, true);
   assert.equal(explicit.priority, 4);
@@ -1192,4 +1192,24 @@ test('settings removed from the schema are dropped from an older config', () => 
     'require_previous_test_pass',
     'test_cases',
   ]);
+});
+
+test('a hint authored with the retired timed trigger falls back to workspace_change', () => {
+  // `timed` is gone: nothing in the runtime scheduled it, so an activity that
+  // still carries it would otherwise keep a hint that can never appear. The
+  // normalizer maps the unknown event to workspace_change, which is the
+  // documented workaround for the same effect.
+  const { config } = normalizeBuilderDraftConfig({
+    hints: [
+      {
+        id: 'legacy_timed',
+        message: 'Need help?',
+        trigger: { event: 'timed' },
+        delay_seconds: 60,
+      },
+    ],
+  });
+
+  assert.equal(config.hints[0].trigger.event, 'workspace_change');
+  assert.equal(config.hints[0].delay_seconds, 60);
 });

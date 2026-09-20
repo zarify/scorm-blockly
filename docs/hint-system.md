@@ -52,7 +52,7 @@ Checklist items work best when their condition represents a completed milestone,
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `event` | string | ✅ | — | `"workspace_change"`, `"test_fail"`, `"manual"`, or `"timed"` |
+| `event` | string | ✅ | — | `"workspace_change"`, `"test_fail"`, or `"manual"` |
 | `conditions` | condition | No | — | Workspace condition that must be true. This can be a simple predicate or a visual `block_pattern`. See [Condition Reference](condition-reference.md) |
 | `after_attempts` | integer | No | `0` | Only show after this many failed test runs |
 | `invalidate_on_condition_false` | boolean | No | `false` | If true, a triggered hint hides again when its condition becomes false. Combine with `show_once` to make that hide permanent. |
@@ -121,16 +121,19 @@ Fires when the student clicks **💡 Get Hint** (or requests a hint programmatic
 
 Only hints whose `trigger.event` is `manual` are considered requestable by the button. A `manual` hint with `show_once: true` is treated as consumed once the student requests it, so it will not activate the button again.
 
-### `timed`
+### Time-delayed hints
 
-Intended for time-based hints that appear after a period of inactivity.
-
-> ⚠️ **Not yet implemented.** No scheduler or inactivity timer fires `timed` events at runtime. The `delay_seconds` field on other trigger types works correctly (it delays after the trigger event fires), but a standalone `timed` trigger with no other event will not activate. Use `workspace_change` with `delay_seconds` as a workaround.
+There is no `timed` trigger: nothing in the runtime schedules an inactivity
+timer, so a hint that waited for one could never appear. Use
+`workspace_change` with `delay_seconds` instead - the condition has to keep
+holding for that many seconds, and the runtime re-evaluates when the delay
+elapses.
 
 ```json
 {
   "trigger": {
-    "event": "timed"
+    "event": "workspace_change",
+    "conditions": { "type": "workspace_empty" }
   },
   "message": "Need some help? Start by looking at the Loops category.",
   "delay_seconds": 60

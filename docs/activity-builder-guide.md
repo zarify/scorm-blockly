@@ -155,7 +155,6 @@ Hints can be **drag-and-dropped** in the list to change their order, exactly lik
    - **workspace_change** — When student modifies blocks (most common)
    - **test_fail** — After a failed test run
    - **manual** — When manually requested with the **💡 Get Hint** button
-   - **timed** — After a time delay (⚠️ not yet implemented at runtime)
 3. Write the **message** shown to the student
 4. Choose the **display mode**:
    - **Hidden until triggered** — The hint stays hidden until it fires

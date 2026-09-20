@@ -170,7 +170,7 @@ Each hint object:
 |-------|------|----------|---------|-------------|
 | `id` | string | ✅ | — | Unique hint identifier |
 | `trigger` | object | ✅ | — | When and why the hint appears |
-| `trigger.event` | string | ✅ | — | `"workspace_change"`, `"test_fail"`, `"manual"`, or `"timed"` |
+| `trigger.event` | string | ✅ | — | `"workspace_change"`, `"test_fail"`, or `"manual"` |
 | `trigger.conditions` | condition object | No | — | Workspace condition (required for `workspace_change`, optional for others). See [Condition Reference](condition-reference.md) |
 | `trigger.after_attempts` | integer | No | `0` | Minimum number of failed test runs before hint can appear |
 | `message` | string | ✅ | — | Text shown to the student |

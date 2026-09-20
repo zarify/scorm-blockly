@@ -144,7 +144,6 @@ When the student toolbox includes Blockly procedure call blocks, the **Functions
 | `workspace_change` | Evaluates when student modifies blocks (debounced) |
 | `test_fail` | Shown after failed test runs |
 | `manual` | Student clicks "Get Hint" |
-| `timed` | After inactivity timeout |
 
 ### Hint Conditions
 

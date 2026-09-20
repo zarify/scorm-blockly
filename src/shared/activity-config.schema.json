@@ -306,7 +306,7 @@
           "properties": {
             "event": {
               "type": "string",
-              "enum": ["workspace_change", "test_fail", "manual", "timed"]
+              "enum": ["workspace_change", "test_fail", "manual"]
             },
             "conditions": {
               "$ref": "#/definitions/condition",

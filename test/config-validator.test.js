@@ -813,9 +813,17 @@ test('the hint trigger event must be one of the four known events', () => {
     /Must be one of/,
   );
 
-  for (const event of ['workspace_change', 'test_fail', 'manual', 'timed']) {
+  for (const event of ['workspace_change', 'test_fail', 'manual']) {
     assertValid(validateHintConfig({ id: 'h', message: 'm', trigger: { event } }));
   }
+
+  // `timed` was offered by the builder and accepted by the schema, but nothing
+  // in the runtime ever fired it, so a hint using it could never appear.
+  assertOneErrorAt(
+    validateHintConfig({ id: 'h', message: 'm', trigger: { event: 'timed' } }),
+    'hints[0].trigger.event',
+    /Must be one of/,
+  );
 });
 
 test('the hint display mode must be triggered or checklist, and defaults when omitted', () => {
