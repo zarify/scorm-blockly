@@ -49,9 +49,13 @@ export function init() {
   const result = api.LMSInitialize('');
   if (result === 'true' || result === true) {
     initialized = true;
-    // Set initial status to incomplete
-    api.LMSSetValue('cmi.core.lesson_status', 'incomplete');
-    api.LMSCommit('');
+    // Only claim the attempt while it has not started; re-entry must not wipe a
+    // completed/passed status that the LMS is tracking for this student.
+    const currentStatus = api.LMSGetValue('cmi.core.lesson_status');
+    if (!currentStatus || currentStatus === 'not attempted' || currentStatus === 'browsed') {
+      api.LMSSetValue('cmi.core.lesson_status', 'incomplete');
+      api.LMSCommit('');
+    }
     return true;
   }
 
@@ -104,6 +108,73 @@ export function setStatus(status) {
 export function reportScore(score, passingScore = 50) {
   setScore(score);
   setStatus(score >= passingScore ? 'passed' : 'failed');
+}
+
+/**
+ * Check whether the SCORM session is live and can accept writes.
+ * @returns {boolean}
+ */
+export function isSessionActive() {
+  return initialized && !previewMode && Boolean(api);
+}
+
+/**
+ * Read the LMS user id for the current student.
+ * Used to scope browser-side storage to one student per device.
+ * @returns {string}
+ */
+export function getStudentId() {
+  if (!initialized || previewMode || !api) return '';
+
+  const value = api.LMSGetValue('cmi.core.student_id');
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+/**
+ * Read the suspend data string saved by a previous session.
+ * @returns {string} Empty string when nothing is stored or no LMS is connected
+ */
+export function getSuspendData() {
+  if (!initialized || previewMode || !api) return '';
+
+  const value = api.LMSGetValue('cmi.suspend_data');
+  return typeof value === 'string' ? value : '';
+}
+
+/**
+ * Store suspend data for the next session and commit it immediately.
+ * @param {string} value
+ * @returns {boolean} true when the LMS accepted the value
+ */
+export function setSuspendData(value) {
+  if (!initialized || previewMode || !api) {
+    console.log('[SCORM Preview] Suspend data not stored (no LMS)');
+    return false;
+  }
+
+  const result = api.LMSSetValue('cmi.suspend_data', String(value));
+  const accepted = result === 'true' || result === true;
+  if (accepted) {
+    api.LMSCommit('');
+  } else {
+    console.warn('[SCORM] LMS rejected suspend data:', api.LMSGetLastError());
+  }
+  return accepted;
+}
+
+/**
+ * Discard stored suspend data so the next session starts clean.
+ * @returns {boolean} true when the LMS accepted the empty value
+ */
+export function clearSuspendData() {
+  if (!initialized || previewMode || !api) return false;
+
+  const result = api.LMSSetValue('cmi.suspend_data', '');
+  const accepted = result === 'true' || result === true;
+  if (accepted) {
+    api.LMSCommit('');
+  }
+  return accepted;
 }
 
 /**

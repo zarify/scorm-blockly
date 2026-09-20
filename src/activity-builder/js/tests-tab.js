@@ -17,6 +17,11 @@ import {
   getSuggestedConditionBlockTypes,
 } from './condition-suggestions.js';
 import { renderPatternBuilder } from './pattern-builder.js';
+import {
+  enableListReordering,
+  getSelectionIndexAfterMove,
+  moveListItem,
+} from './list-reorder.js';
 import { WORKSPACE_CONNECTEDNESS_MODE_OPTIONS, normalizeWorkspaceConnectednessMode } from '../../shared/workspace-connectedness.js';
 import {
   formatPromptInputs,
@@ -37,7 +42,6 @@ import {
 
 let selectedTestIndex = -1;
 let suppressSelectedTestEditorSync = false;
-let draggedTestIndex = null;
 
 const TEST_TYPES = [
   { value: 'stdout_match', label: 'Output/prompt text check' },
@@ -163,7 +167,7 @@ function renderTestList() {
   const tests = getConfig().evaluation.test_cases;
 
   container.innerHTML = tests.map((tc, i) => `
-    <div class="list-item test-list-item ${i === selectedTestIndex ? 'selected' : ''}" data-index="${i}" draggable="true">
+    <div class="list-item test-list-item list-item-reorderable ${i === selectedTestIndex ? 'selected' : ''}" data-index="${i}" draggable="true">
       <span class="list-item-title">
         <strong>${tc.type}</strong> — ${tc.id} (${formatPointsLabel(getTestPoints(tc))})
       </span>
@@ -180,36 +184,9 @@ function renderTestList() {
     });
   });
 
-  container.querySelectorAll('.test-list-item').forEach((el) => {
-    el.addEventListener('dragstart', (e) => {
-      draggedTestIndex = parseInt(el.dataset.index, 10);
-      el.classList.add('dragging');
-      e.dataTransfer.effectAllowed = 'move';
-      e.dataTransfer.setData('text/plain', String(draggedTestIndex));
-    });
-    el.addEventListener('dragover', (e) => {
-      e.preventDefault();
-      if (draggedTestIndex === null) return;
-      const { before } = getDropPlacement(el, e.clientY);
-      el.classList.toggle('drag-over-before', before);
-      el.classList.toggle('drag-over-after', !before);
-    });
-    el.addEventListener('dragleave', () => {
-      clearDropIndicator(el);
-    });
-    el.addEventListener('drop', (e) => {
-      e.preventDefault();
-      if (draggedTestIndex === null) return;
-      const targetIndex = parseInt(el.dataset.index, 10);
-      const { before } = getDropPlacement(el, e.clientY);
-      moveTest(draggedTestIndex, targetIndex, before ? 'before' : 'after');
-      draggedTestIndex = null;
-    });
-    el.addEventListener('dragend', () => {
-      draggedTestIndex = null;
-      clearAllDropIndicators(container);
-      el.classList.remove('dragging');
-    });
+  enableListReordering(container, {
+    itemSelector: '.test-list-item',
+    onMove: moveTest,
   });
 
   container.querySelectorAll('.list-item-remove').forEach((el) => {
@@ -221,59 +198,27 @@ function renderTestList() {
 }
 
 function moveTest(fromIndex, targetIndex, position) {
-  const tests = getConfig().evaluation.test_cases;
-  if (
-    !Array.isArray(tests)
-    || fromIndex < 0
-    || targetIndex < 0
-    || fromIndex >= tests.length
-    || targetIndex >= tests.length
-  ) {
-    return;
-  }
-  if (fromIndex === targetIndex) {
+  const moved = moveListItem(
+    getConfig().evaluation.test_cases,
+    fromIndex,
+    targetIndex,
+    position,
+  );
+  if (!moved) return;
+  if (!moved.changed) {
     renderTestList();
     return;
   }
 
-  const [moved] = tests.splice(fromIndex, 1);
-  let insertIndex = targetIndex;
-  if (fromIndex < targetIndex) {
-    insertIndex -= 1;
-  }
-  if (position === 'after') {
-    insertIndex += 1;
-  }
-  insertIndex = Math.max(0, Math.min(insertIndex, tests.length));
-  tests.splice(insertIndex, 0, moved);
-
-  if (selectedTestIndex === fromIndex) {
-    selectedTestIndex = insertIndex;
-  } else if (fromIndex < selectedTestIndex && insertIndex >= selectedTestIndex) {
-    selectedTestIndex -= 1;
-  } else if (fromIndex > selectedTestIndex && insertIndex <= selectedTestIndex) {
-    selectedTestIndex += 1;
-  }
+  selectedTestIndex = getSelectionIndexAfterMove(
+    selectedTestIndex,
+    moved.fromIndex,
+    moved.insertIndex,
+  );
 
   emitLocalTestChange();
   renderTestList();
   renderTestEditor();
-}
-
-function getDropPlacement(element, pointerY) {
-  const rect = element.getBoundingClientRect();
-  return { before: pointerY < rect.top + rect.height / 2 };
-}
-
-function clearDropIndicator(element) {
-  element.classList.remove('drag-over-before', 'drag-over-after');
-}
-
-function clearAllDropIndicators(container) {
-  container.querySelectorAll('.test-list-item').forEach((element) => {
-    clearDropIndicator(element);
-    element.classList.remove('dragging');
-  });
 }
 
 function renderTestEditor() {
@@ -811,6 +756,7 @@ function renderConditionBuilder(container, condition, onChange) {
     } else if (newCond.type === BLOCK_PATTERN_TYPE) {
       newCond.workspace_state = null;
       newCond.field_constraints = {};
+      newCond.param_constraints = {};
     } else if (newCond.type === 'workspace_connectedness') {
       newCond.mode = 'all_connected';
     }

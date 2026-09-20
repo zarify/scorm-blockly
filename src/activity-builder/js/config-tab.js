@@ -3,6 +3,7 @@
  */
 
 import { getConfig, notifyChange, onConfigChange } from './builder-app.js';
+import { SUSPEND_DATA_DEFAULT_LIMIT } from '../../shared/config-normalizer.js';
 
 let lastConfigRef = null;
 
@@ -30,6 +31,11 @@ export function initConfigTab() {
   bindInput('cfg-max-attempts', (val) => {
     getConfig().ui_settings.max_attempts = val ? parseInt(val, 10) : null;
   });
+  bindInput('cfg-suspend-data-limit', (val) => {
+    getConfig().ui_settings.suspend_data_limit = val
+      ? Math.max(512, parseInt(val, 10))
+      : SUSPEND_DATA_DEFAULT_LIMIT;
+  });
   bindCheckbox('cfg-require-previous-test-pass', (val) => {
     getConfig().evaluation.require_previous_test_pass = val;
   });
@@ -53,6 +59,7 @@ function populateFromConfig(cfg) {
   document.getElementById('cfg-show-code').checked = cfg.ui_settings?.show_code_toggle === true;
   document.getElementById('cfg-show-hints').checked = cfg.ui_settings?.show_hint_panel !== false;
   document.getElementById('cfg-max-attempts').value = cfg.ui_settings?.max_attempts || '';
+  document.getElementById('cfg-suspend-data-limit').value = cfg.ui_settings?.suspend_data_limit || '';
   document.getElementById('cfg-require-previous-test-pass').checked = cfg.evaluation?.require_previous_test_pass !== false;
   document.getElementById('cfg-feedback-on-all-pass').value = cfg.evaluation?.feedback_on_all_pass || '';
   renderSteps(cfg.instructions?.steps || []);

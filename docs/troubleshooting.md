@@ -132,6 +132,21 @@ The student's code created an infinite loop. The 5-second timeout in the Web Wor
 
 If legitimate code needs more than 5 seconds (unlikely for Blockly activities), adjust `EXECUTION_TIMEOUT_MS` in `test-runner.js`.
 
+### Student work is not restored next session
+
+The runtime saves the workspace in two layers — `cmi.suspend_data` (portable, 4096 characters by default) and this browser's IndexedDB (large, but per device) — and restores the newest complete snapshot. See [Student Progress Persistence](scorm-deployment.md#student-progress-persistence). If nothing is restored:
+
+1. **Same attempt** — Moodle only keeps `suspend_data` for the current attempt; **Force new attempt** starts fresh
+2. **Status-bar notice** — the runtime explains what happened instead of failing silently:
+   - *"Your blocks are stored in this browser only — they are too large for the LMS to keep."* → the program exceeds the suspend data budget; it will still restore on this browser, and you can raise `ui_settings.suspend_data_limit` for an LMS that accepts more
+   - *"This browser no longer has the saved copy of your blocks (storage was cleared, or you are on another device)."* → the IndexedDB copy was evicted, private browsing was used, or the student changed device; the `suspend_data` snapshot was also missing, so the starting blocks were loaded
+   - *"The LMS did not store your blocks, so progress will not be restored next session."* → the LMS rejected the write entirely
+   - *"Your blocks are too large to save, so progress will not be restored next session."* → the program exceeds the budget **and** the browser copy is unavailable (for example private browsing), so nothing could be kept
+3. **Console** — `[WorkspacePersistence]` warnings report an LMS that truncated or altered a write (for example `LMS stored 4000 of 14667 characters; capping suspend data at 4000 characters`); the runtime lowers its own limit and keeps working
+4. **Reset** — clicking **↺ Reset** discards both layers on purpose
+5. **Activity id** — saved state is only restored when the stored `activity_id` matches the config in the package
+6. **No LMS** — in preview mode (no SCORM API detected) nothing is stored; use Moodle or the builder preview with an LMS API present
+
 ### Activity works locally but not in Moodle
 
 Common differences between local preview and Moodle:
@@ -200,6 +215,7 @@ Check these first:
 3. **Scoped field constraints** — field constraints are tied to the selected pattern block, not applied workspace-wide
 4. **Comparison mode** — choose carefully between exact, contains, regex full-match, and regex search
 5. **Structure direction** — nested inputs and vertical `next` chains must be connected in the pattern exactly the way you want them matched
+6. **Parameter count** — a **Match parameter count** constraint only exists on function definition and call blocks; it compares arity, so parameter names never need to match
 
 ### `block_field_value` not matching
 

@@ -6,7 +6,11 @@ import {
 } from '../../shared/blockly-toolbox.js';
 import {
   createPatternToolboxCategory,
+  getBlockParamCount,
   isPatternWildcardType,
+  isProcedureBlockType,
+  normalizeParamCountComparison,
+  PARAM_COUNT_COMPARISON_OPTIONS,
   registerBlockPatternBlocks,
 } from '../../shared/block-pattern.js';
 import {
@@ -110,6 +114,7 @@ export function renderPatternBuilder(container, condition, onChange) {
     activeBlockId = null;
     condition.workspace_state = null;
     condition.field_constraints = {};
+    condition.param_constraints = {};
     onChange(condition);
     renderInspector();
     updateStatus();
@@ -119,6 +124,7 @@ export function renderPatternBuilder(container, condition, onChange) {
     condition.workspace_state = serializeWorkspace(workspace);
     if (!condition.workspace_state) {
       condition.field_constraints = {};
+      condition.param_constraints = {};
     }
     onChange(condition);
     updateStatus();
@@ -148,7 +154,8 @@ export function renderPatternBuilder(container, condition, onChange) {
       return;
     }
 
-    const fields = (selectedBlock.getFields?.() || []).filter((field) => field?.name);
+    // Blockly 12.5 returns an iterator from getFields(), which has no join().
+    const fields = [...(selectedBlock.getFields?.() || [])].filter((field) => field?.name);
     const blockConstraints = getBlockConstraints(condition, selectedBlock.id);
 
     inspectorEl.innerHTML = `
@@ -160,6 +167,9 @@ export function renderPatternBuilder(container, condition, onChange) {
           : fields
             .map((field) => renderFieldConstraintEditor(selectedBlock, field, blockConstraints[field.name]))
             .join('')}
+        ${isProcedureBlockType(selectedBlock.type)
+          ? renderParamCountEditor(selectedBlock, getParamConstraint(condition, selectedBlock.id))
+          : ''}
       </div>
     `;
 
@@ -190,6 +200,36 @@ export function renderPatternBuilder(container, condition, onChange) {
 
         onChange(condition);
         renderInspector();
+        return;
+      }
+
+      if (target.matches('[data-param-count-enable]')) {
+        if (!(target instanceof HTMLInputElement)) return;
+
+        if (target.checked) {
+          setParamConstraint(condition, selectedBlock.id, {
+            count: getBlockParamCount(selectedBlock),
+            comparison: 'equals',
+          });
+        } else {
+          clearParamConstraint(condition, selectedBlock.id);
+        }
+
+        onChange(condition);
+        renderInspector();
+        return;
+      }
+
+      if (target.matches('[data-param-count-comparison]')) {
+        const current = getParamConstraint(condition, selectedBlock.id) || {
+          count: getBlockParamCount(selectedBlock),
+          comparison: 'equals',
+        };
+        setParamConstraint(condition, selectedBlock.id, {
+          ...current,
+          comparison: target.value,
+        });
+        onChange(condition);
         return;
       }
 
@@ -224,6 +264,19 @@ export function renderPatternBuilder(container, condition, onChange) {
         if (!fieldName) return;
 
         setFieldConstraintValue(condition, selectedBlock.id, fieldName, 'expected_value', target.value);
+        onChange(condition);
+        return;
+      }
+
+      if (target.matches('[data-param-count-value]')) {
+        const current = getParamConstraint(condition, selectedBlock.id) || {
+          count: getBlockParamCount(selectedBlock),
+          comparison: 'equals',
+        };
+        setParamConstraint(condition, selectedBlock.id, {
+          ...current,
+          count: Math.max(0, parseInt(target.value, 10) || 0),
+        });
         onChange(condition);
         return;
       }
@@ -263,6 +316,9 @@ function ensurePatternConditionDefaults(condition) {
   if (!condition.field_constraints || typeof condition.field_constraints !== 'object') {
     condition.field_constraints = {};
   }
+  if (!condition.param_constraints || typeof condition.param_constraints !== 'object') {
+    condition.param_constraints = {};
+  }
 }
 
 function serializeWorkspace(workspace) {
@@ -282,6 +338,22 @@ function getInspectorBlock(workspace, activeBlockId) {
 
 function getBlockConstraints(condition, blockId) {
   return condition.field_constraints?.[blockId] || {};
+}
+
+function getParamConstraint(condition, blockId) {
+  return condition.param_constraints?.[blockId] || null;
+}
+
+function setParamConstraint(condition, blockId, value) {
+  if (!condition.param_constraints || typeof condition.param_constraints !== 'object') {
+    condition.param_constraints = {};
+  }
+  condition.param_constraints[blockId] = value;
+}
+
+function clearParamConstraint(condition, blockId) {
+  if (!condition.param_constraints?.[blockId]) return;
+  delete condition.param_constraints[blockId];
 }
 
 function setFieldConstraint(condition, blockId, fieldName, value) {
@@ -318,13 +390,20 @@ function clearFieldConstraint(condition, blockId, fieldName) {
 function pruneFieldConstraints(condition, workspace) {
   if (!condition.field_constraints || typeof condition.field_constraints !== 'object') {
     condition.field_constraints = {};
-    return;
+  }
+  if (!condition.param_constraints || typeof condition.param_constraints !== 'object') {
+    condition.param_constraints = {};
   }
 
   const blockIds = new Set(workspace.getAllBlocks(false).map((block) => block.id));
   for (const blockId of Object.keys(condition.field_constraints)) {
     if (!blockIds.has(blockId)) {
       delete condition.field_constraints[blockId];
+    }
+  }
+  for (const blockId of Object.keys(condition.param_constraints)) {
+    if (!blockIds.has(blockId)) {
+      delete condition.param_constraints[blockId];
     }
   }
 }
@@ -378,6 +457,49 @@ function renderFieldConstraintEditor(block, field, constraint) {
       ` : ''}
     </div>
   `;
+}
+
+function renderParamCountEditor(block, constraint) {
+  const currentCount = getBlockParamCount(block);
+  const enabled = Boolean(constraint);
+  const comparison = normalizeParamCountComparison(constraint?.comparison);
+  const count = enabled ? Number(constraint.count) : currentCount;
+  const params = getParamNames(block);
+
+  return `
+    <div class="pattern-field-editor">
+      <label class="checkbox-label">
+        <input type="checkbox" data-param-count-enable ${enabled ? 'checked' : ''}>
+        Match parameter count
+      </label>
+      <div class="pattern-field-current">
+        Current signature: <code>${escapeHtml(`(${params.join(', ')})`)}</code> — ${currentCount} parameter(s)
+      </div>
+      ${enabled ? `
+        <div class="form-group">
+          <label>Comparison</label>
+          <select data-param-count-comparison>
+            ${PARAM_COUNT_COMPARISON_OPTIONS.map((option) => `
+              <option value="${option.value}" ${comparison === option.value ? 'selected' : ''}>${option.label}</option>
+            `).join('')}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Parameter count</label>
+          <input type="number" min="0" step="1" data-param-count-value value="${Number.isFinite(count) ? count : currentCount}">
+          <small>Checked against the student's block, so parameter names are free.</small>
+        </div>
+      ` : ''}
+    </div>
+  `;
+}
+
+function getParamNames(block) {
+  const state = block.saveExtraState?.();
+  const params = Array.isArray(state?.params) ? state.params : [];
+  return params
+    .map((param) => (typeof param === 'string' ? param : param?.name))
+    .filter((name) => typeof name === 'string' && name !== '');
 }
 
 function getFieldConstraintValueLabel(matchMode) {

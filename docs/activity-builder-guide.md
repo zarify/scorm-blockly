@@ -55,6 +55,7 @@ Set the activity metadata, student instructions, and UI settings.
 | **Show code toggle** | Off | Let students open the generated JavaScript code modal |
 | **Enable hints** | ✅ On | Enable student-facing hints in the runtime |
 | **Max attempts** | Unlimited | ⚠️ Not yet enforced at runtime. The field is in the schema for future use |
+| **Suspend data limit** | 4096 | Characters reserved for saved student work in `cmi.suspend_data`. SCORM 1.2 specifies 4096; raise it only for an LMS known to accept more. Larger programs are also kept in the student's browser via IndexedDB, and each LMS write is verified |
 
 ### Results
 
@@ -99,7 +100,7 @@ The builder includes all standard Blockly blocks, organised into groups:
 | **Math** | `math_number`, `math_arithmetic`, `math_modulo`, `math_round`, `math_random_int` |
 | **Text** | `text`, `text_print`, `text_join`, `text_length`, `text_isEmpty`, `text_charAt` |
 | **Lists** | `lists_create_with`, `lists_length`, `lists_isEmpty`, `lists_indexOf`, `lists_getIndex`, `lists_setIndex` |
-| **Variables** | `variables_get`, `variables_set` |
+| **Variables** | `variables_get`, `variables_set`, `math_change` |
 | **Functions** | `procedures_defnoreturn`, `procedures_defreturn`, `procedures_callnoreturn`, `procedures_callreturn` |
 
 ### Tips
@@ -143,8 +144,10 @@ Create contextual hints that appear as students work. See [Hint System](hint-sys
 
 ### Two-Panel Layout
 
-1. **Hint List** (left) — All configured hints
+1. **Hint List** (left) — All configured hints, each showing its priority
 2. **Hint Editor** (right) — Edit the selected hint
+
+Hints can be **drag-and-dropped** in the list to change their order, exactly like test cases. The list order is the tie-break for hints that share the same priority.
 
 ### Creating a Hint
 
@@ -191,6 +194,7 @@ For conditions that are awkward to express with simple predicates, use **Visual 
 - Add **any block(s)** to match gaps in a statement chain
 - Add **any value** to match any value subtree
 - Select a block in the pattern workspace to add optional exact, contains, regex full-match, or regex search field constraints
+- For function blocks, tick **Match parameter count** to check how many parameters the student's function takes (exactly / at least / at most) without prescribing the parameter names
 
 The authoring UI now treats **Visual block pattern** as the primary way to express:
 - sequential block connections

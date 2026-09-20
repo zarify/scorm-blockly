@@ -18,7 +18,7 @@ import {
   VALID_RUNTIME_TEXT_MATCH_MODES,
   VALID_VARIABLE_TYPES,
 } from './test-config.js';
-import { BLOCK_PATTERN_TYPE, registerBlockPatternBlocks } from './block-pattern.js';
+import { BLOCK_PATTERN_TYPE, isProcedureBlockType, registerBlockPatternBlocks, VALID_PARAM_COUNT_COMPARISONS } from './block-pattern.js';
 import {
   createFieldValueMatcher,
   getEffectiveRegexFlags,
@@ -82,6 +82,11 @@ export function validateConfig(config) {
         message: 'Must be lowercase alphanumeric with underscores only',
       });
     }
+  }
+
+  // ui_settings
+  if (config.ui_settings) {
+    validateSuspendDataLimit(config.ui_settings.suspend_data_limit, 'ui_settings.suspend_data_limit', errors);
   }
 
   // blockly_setup
@@ -881,6 +886,17 @@ function validateBlockPatternCondition(condition, path, errors) {
     return;
   }
 
+  if (
+    condition.param_constraints !== undefined
+    && (!condition.param_constraints || typeof condition.param_constraints !== 'object' || Array.isArray(condition.param_constraints))
+  ) {
+    errors.push({
+      path: `${path}.param_constraints`,
+      message: 'Must be an object keyed by pattern block id',
+    });
+    return;
+  }
+
   const patternWorkspace = new Blockly.Workspace();
   try {
     try {
@@ -965,10 +981,72 @@ function validateBlockPatternCondition(condition, path, errors) {
         validateFieldValueMatcherConfig(constraint, fieldPath, errors);
       }
     }
+
+    for (const [blockId, constraint] of Object.entries(condition.param_constraints || {})) {
+      const constraintPath = `${path}.param_constraints.${blockId}`;
+      const block = patternWorkspace.getBlockById(blockId);
+      if (!block) {
+        errors.push({
+          path: constraintPath,
+          message: 'Constraint references a block that is not in the pattern workspace',
+        });
+        continue;
+      }
+
+      if (!isProcedureBlockType(block.type)) {
+        errors.push({
+          path: constraintPath,
+          message: `Block type ${block.type} does not expose a parameter list`,
+        });
+        continue;
+      }
+
+      if (!constraint || typeof constraint !== 'object' || Array.isArray(constraint)) {
+        errors.push({ path: constraintPath, message: 'Parameter count constraint must be an object' });
+        continue;
+      }
+
+      if (
+        constraint.comparison !== undefined
+        && !VALID_PARAM_COUNT_COMPARISONS.includes(constraint.comparison)
+      ) {
+        errors.push({
+          path: `${constraintPath}.comparison`,
+          message: `Must be one of: ${VALID_PARAM_COUNT_COMPARISONS.join(', ')}`,
+        });
+      }
+
+      if (
+        constraint.count !== undefined
+        && (!Number.isInteger(constraint.count) || constraint.count < 0)
+      ) {
+        errors.push({
+          path: `${constraintPath}.count`,
+          message: 'Must be a non-negative integer',
+        });
+      }
+    }
   } finally {
     if (typeof patternWorkspace.dispose === 'function') {
       patternWorkspace.dispose();
     }
+  }
+}
+
+/**
+ * Validate the optional suspend data character budget.
+ * @param {*} value
+ * @param {string} path
+ * @param {ValidationError[]} errors
+ */
+function validateSuspendDataLimit(value, path, errors) {
+  if (value === undefined || value === null) return;
+
+  if (!Number.isInteger(value) || value < 512) {
+    errors.push({
+      path,
+      message: 'Must be an integer of at least 512 characters',
+    });
   }
 }
 

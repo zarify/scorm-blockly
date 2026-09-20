@@ -5,7 +5,9 @@
  */
 
 import * as scorm from './scorm-wrapper.js';
-import { initWorkspace, generateCode, getWorkspace, Blockly } from './blockly-engine.js';
+import { initWorkspace, generateCode, getWorkspace, serializeWorkspace, Blockly } from './blockly-engine.js';
+import { createWorkspacePersistence } from './workspace-persistence.js';
+import { SUSPEND_DATA_MAX_LENGTH } from './workspace-state-codec.js';
 import { executeInteractiveRun, INTERACTIVE_RUN_CANCELLED_ERROR, runTests } from './test-runner.js';
 import { initHintEngine, onTestFail, requestHint, setBlocklyRef } from './hint-engine.js';
 import { renderInlineMarkdown } from '../../shared/inline-markdown.js';
@@ -15,6 +17,9 @@ let attemptCount = 0;
 let interactiveConsoleState = null;
 let activeInteractiveRun = null;
 let isResultsModalCloseLocked = false;
+let workspaceSaveTimer = null;
+let persistence = null;
+const WORKSPACE_SAVE_DEBOUNCE_MS = 1000;
 const PREVIEW_CONFIG_GLOBAL = '__BLOCKLY_SCORM_PREVIEW_CONFIG__';
 const PREVIEW_MODE_GLOBAL = '__BLOCKLY_SCORM_PREVIEW_MODE__';
 const OUTPUT_PLACEHOLDER_HTML =
@@ -49,6 +54,18 @@ async function init() {
   const blocklyContainer = document.getElementById('blockly-workspace');
   initWorkspace(blocklyContainer, config.blockly_setup, config.ui_settings || {});
 
+  persistence = createWorkspacePersistence({
+    activityId: config.metadata?.activity_id || '',
+    studentId: scorm.getStudentId(),
+    limit: config.ui_settings?.suspend_data_limit ?? SUSPEND_DATA_MAX_LENGTH,
+    onWarning: (message) => showStatus(message, 'warning'),
+  });
+  const restoreResult = await restoreSavedWorkspace();
+  watchWorkspaceChanges();
+  // The loaded workspace already matches what is stored, so the events Blockly
+  // fires while loading must not trigger a redundant save.
+  persistence.markCurrent(serializeWorkspace());
+
   // 5. Initialize hint engine
   setBlocklyRef(Blockly);
   const hintPanel = document.getElementById('hint-panel');
@@ -73,8 +90,29 @@ async function init() {
     if (ws) Blockly.svgResize(ws);
   });
 
-  // 8. Handle page unload
-  window.addEventListener('beforeunload', () => scorm.terminate());
+  // 8. Persist on the events browsers actually fire when a page goes away
+  window.addEventListener('beforeunload', () => {
+    flushWorkspaceSave();
+    scorm.terminate();
+  });
+  window.addEventListener('pagehide', (event) => {
+    flushWorkspaceSave();
+    // Keep the SCORM session alive when the page is only entering bfcache.
+    if (!event.persisted) scorm.terminate();
+  });
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushWorkspaceSave();
+  });
+
+  if (restoreResult.restored) {
+    showStatus('Welcome back — your saved blocks have been restored.', 'info');
+    return;
+  }
+
+  if (restoreResult.notice) {
+    showStatus(restoreResult.notice, 'warning');
+    return;
+  }
 
   showStatus(
     embeddedPreview
@@ -82,6 +120,80 @@ async function init() {
       : 'Activity loaded. Arrange your blocks, then click "Run Code" or "Check".',
     'info',
   );
+}
+
+/**
+ * Restore the newest saved workspace, if any.
+ * @returns {Promise<{ restored: boolean, notice: string|null }>}
+ */
+async function restoreSavedWorkspace() {
+  const restored = await persistence.restore();
+  if (!restored.state) {
+    return { restored: false, notice: restored.notice };
+  }
+
+  const workspace = getWorkspace();
+  if (!workspace) return { restored: false, notice: null };
+
+  try {
+    Blockly.serialization.workspaces.load(restored.state, workspace);
+    workspace.cleanUp?.();
+    return { restored: true, notice: null };
+  } catch (err) {
+    console.warn('[App] Could not restore saved workspace:', err.message);
+    return { restored: false, notice: null };
+  }
+}
+
+/**
+ * Persist the workspace shortly after the student stops editing.
+ */
+function watchWorkspaceChanges() {
+  const workspace = getWorkspace();
+  if (!workspace || scorm.isPreviewMode()) return;
+
+  workspace.addChangeListener((event) => {
+    if (event?.isUiEvent) return;
+    scheduleWorkspaceSave();
+  });
+}
+
+function scheduleWorkspaceSave() {
+  clearTimeout(workspaceSaveTimer);
+  workspaceSaveTimer = setTimeout(() => {
+    workspaceSaveTimer = null;
+    saveWorkspace();
+  }, WORKSPACE_SAVE_DEBOUNCE_MS);
+}
+
+/**
+ * Store the workspace in IndexedDB and SCORM suspend data.
+ */
+function saveWorkspace() {
+  if (!persistence) return;
+  persistence.persist(serializeWorkspace()).catch((err) => {
+    console.warn('[App] Could not save workspace:', err.message);
+  });
+}
+
+/**
+ * Store synchronously for unload handlers, where async writes may not finish.
+ */
+function flushWorkspaceSave() {
+  clearTimeout(workspaceSaveTimer);
+  workspaceSaveTimer = null;
+  persistence?.persistNow(serializeWorkspace());
+}
+
+/**
+ * Drop the saved session so the next launch starts from the starting blocks.
+ */
+function discardSavedWorkspace() {
+  clearTimeout(workspaceSaveTimer);
+  workspaceSaveTimer = null;
+  persistence?.discard(serializeWorkspace()).catch((err) => {
+    console.warn('[App] Could not discard saved workspace:', err.message);
+  });
 }
 
 async function loadConfig() {
@@ -219,6 +331,7 @@ async function handleCheck() {
 
   try {
     dismissActiveBlocklyEditing();
+    flushWorkspaceSave();
     const code = generateCode();
     const workspace = getWorkspace();
     const {
@@ -259,6 +372,9 @@ function handleReset() {
   if (config.blockly_setup.starting_blocks) {
     Blockly.serialization.workspaces.load(config.blockly_setup.starting_blocks, workspace);
   }
+  // Drop the saved session; the starting state becomes the new baseline so it
+  // is not written back until the student edits again.
+  discardSavedWorkspace();
   setOutputPlaceholder();
   closeResultsModal();
   showStatus('Workspace reset to starting state.', 'info');

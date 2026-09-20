@@ -50,17 +50,20 @@ src/shared/
 src/scorm-template/js/
   ├── scorm-wrapper.js               ← Standalone (SCORM API detection)
   ├── blockly-engine.js              ← Imports blockly
+  ├── workspace-state-codec.js       ← Standalone (suspend_data encoding)
+  ├── workspace-persistence.js       ← Imports scorm-wrapper, codec (two-layer storage)
   ├── test-runner.js                 ← Imports workspace-inspector
   ├── hint-engine.js                 ← Imports hint-evaluator
   └── app.js                         ← Imports all above (entry point)
 
 src/activity-builder/js/
   ├── builder-app.js                 ← Imports blockly (entry point)
+  ├── list-reorder.js                ← Standalone (shared list drag-and-drop)
   ├── config-tab.js                  ← Imports builder-app
   ├── toolbox-tab.js                 ← Imports builder-app
   ├── workspace-tab.js               ← Imports builder-app
-  ├── hints-tab.js                   ← Imports builder-app
-  ├── tests-tab.js                   ← Imports builder-app
+  ├── hints-tab.js                   ← Imports builder-app, list-reorder
+  ├── tests-tab.js                   ← Imports builder-app, list-reorder
   ├── preview-tab.js                 ← Imports builder-app
   └── export.js                      ← Imports builder-app, config-validator, jszip
 ```
@@ -95,6 +98,14 @@ Imports `evaluateCondition` from workspace-inspector. Manages hint state (active
 
 Hand-written validation rules matching the JSON Schema. Accumulates all errors (doesn't fail fast).
 
+### `block-pattern.js`
+
+**Purpose:** Visual pattern primitives shared by the builder, validator, and runtime.
+
+**Key exports:** wildcard block types (`pattern_any_statement`, `pattern_any_value`), `getBlockParamCount(block)`, `matchesParamCountConstraint(count, constraint)`, and the parameter count comparison vocabulary (`equals`, `gte`, `lte`).
+
+`getBlockParamCount` reads Blockly's own extra state, so it tracks mutator edits on function definitions and calls. Pattern conditions may therefore constrain arity via `param_constraints` without pinning parameter names.
+
 ---
 
 ## SCORM Template Architecture
@@ -121,6 +132,17 @@ app.js init()
   │   ├── Load starting_blocks (if any) via Blockly.serialization
   │   └── Set maxBlocks (if configured)
   │
+  ├── restoreSavedWorkspace()
+  │   ├── persistence.restore() → newest of { suspend_data payload, IndexedDB record }
+  │   ├── Blockly.serialization.workspaces.load() + cleanUp()
+  │   ├── persistence.markCurrent() so load events do not trigger a redundant save
+  │   └── Falls back to starting_blocks when nothing is stored or readable
+  │
+  ├── watchWorkspaceChanges()
+  │   ├── workspace.addChangeListener() → debounce 1s → persistence.persist()
+  │   ├── persist(): IndexedDB write, then suspend_data write (verified by read-back)
+  │   └── unload/visibility flush: persistence.persistNow() (suspend_data only)
+  │
   ├── hint-engine.initHintEngine()
   │   ├── Store hints config and workspace reference
   │   ├── Initialise hint state
@@ -134,6 +156,28 @@ app.js init()
       ├── btn-code-toggle → show/hide generated JS
       └── beforeunload → scorm.terminate()
 ```
+
+### `workspace-state-codec.js`
+
+**Purpose:** Encode a Blockly workspace state into SCORM 1.2 `cmi.suspend_data` (4096 characters per the data model) as an ASCII-only payload.
+
+**Key functions:** `encodeWorkspaceState({ activityId, state, savedAt, limit })`, `encodeWorkspaceReference({ activityId, savedAt })`, `decodeWorkspacePayload({ payload, activityId })`
+
+- Payload grammar: `BS1|<activity_id>|<format>|<saved_at base36>|<data>`, so state saved for a different activity is ignored
+- Formats: `J` raw JSON and `C` compact JSON (block ids and coordinates stripped) are used only when the JSON is already ASCII; `B` (base64 of the compact JSON) and `L` (LZW + base64) are ASCII by construction and cover non-ASCII field values; `I` is a reference to state held in IndexedDB
+- The shortest encoding that fits the configured limit wins; `null` means nothing fits
+- Decoding is defensive: foreign, truncated, or malformed payloads return `null` and the runtime falls back to `starting_blocks`
+
+### `workspace-persistence.js`
+
+**Purpose:** Own the two persistence layers and their precedence.
+
+**Key functions:** `createWorkspacePersistence({ activityId, studentId, limit, onWarning })` → `{ restore, persist, persistNow, markCurrent, discard, getEffectiveLimit, isIndexedDbAvailable }`
+
+- `restore()` reads both layers and returns the newest complete snapshot plus an optional notice; `persist()` writes IndexedDB first, then `suspend_data`; `persistNow()` is the synchronous `suspend_data`-only path for unload handlers
+- Every `suspend_data` write is read back and compared. A truncated or altered value lowers the working limit, restores the last good snapshot, and falls back to IndexedDB
+- IndexedDB records are keyed `activity_id::student_id::path hash` and carry the state, a timestamp, and the learned limit
+- All writes are serialised through one promise chain so a slow IndexedDB write cannot land out of order
 
 ### Code Execution Pipeline
 

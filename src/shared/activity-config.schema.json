@@ -68,6 +68,12 @@
           "minimum": 1,
           "default": null,
           "description": "Maximum submission attempts (null = unlimited)"
+        },
+        "suspend_data_limit": {
+          "type": "integer",
+          "minimum": 512,
+          "default": 4096,
+          "description": "Characters the runtime may use in cmi.suspend_data. SCORM 1.2 specifies 4096; raise it only for an LMS known to accept more (each write is verified and the runtime falls back automatically)"
         }
       }
     },
@@ -217,7 +223,24 @@
           "properties": {
             "type": { "const": "block_pattern" },
             "workspace_state": { "type": "object" },
-            "field_constraints": { "type": "object", "default": {} }
+            "field_constraints": { "type": "object", "default": {} },
+            "param_constraints": {
+              "type": "object",
+              "default": {},
+              "description": "Parameter count checks keyed by pattern block id, for procedure definition and call blocks",
+              "additionalProperties": {
+                "type": "object",
+                "properties": {
+                  "count": { "type": "integer", "minimum": 0 },
+                  "comparison": {
+                    "type": "string",
+                    "enum": ["equals", "gte", "lte"],
+                    "default": "equals"
+                  }
+                },
+                "required": ["count"]
+              }
+            }
           },
           "required": ["type", "workspace_state"]
         },
