@@ -371,3 +371,101 @@ test('the results modal is locked while a Check is grading', async (t) => {
   assert.match(await page.textContent('#results-modal'), /Check results/);
   assert.deepEqual(errors, []);
 });
+
+test('a run executes in a worker, and cancelling terminates it', async (t) => {
+  if (skipReason) return t.skip(skipReason);
+
+  // Two guarantees the main-thread run could not give: the program works off the
+  // page's thread (so the page keeps answering input), and cancel kills it
+  // outright instead of waiting for it to reach a print or a prompt. The Worker
+  // is instrumented rather than timed, because the loop trap bounds how long a
+  // program can occupy a thread to a few hundred milliseconds.
+  const runtime = await serveRuntimeWithConfig({
+    ...baseConfig,
+    blockly_setup: {
+      ...baseConfig.blockly_setup,
+      starting_blocks: {
+        blocks: {
+          languageVersion: 0,
+          blocks: [
+            {
+              type: 'text_print',
+              x: 40,
+              y: 40,
+              inputs: {
+                TEXT: {
+                  block: {
+                    type: 'text_prompt_ext',
+                    fields: { TYPE: 'TEXT' },
+                    inputs: { TEXT: { block: { type: 'text', fields: { TEXT: 'Waiting' } } } },
+                  },
+                },
+              },
+            },
+          ],
+        },
+      },
+    },
+  });
+  t.after(() => runtime.close());
+
+  const { page, errors, close } = await newPage(browser, {
+    url: `${runtime.origin}/index.html`,
+    initScripts: [
+      { fn: SEED_MODEL_INIT, arg: { model: { 'cmi.core.student_id': 'student-42' } } },
+      { fn: MOCK_SCORM_INIT, arg: {} },
+      {
+        fn: () => {
+          const OriginalWorker = window.Worker;
+          window.__workers = [];
+          window.Worker = class InstrumentedWorker extends OriginalWorker {
+            constructor(...args) {
+              super(...args);
+              this.wasTerminated = false;
+              window.__workers.push(this);
+            }
+
+            terminate() {
+              this.wasTerminated = true;
+              return super.terminate();
+            }
+          };
+        },
+        arg: {},
+      },
+    ],
+  });
+  t.after(close);
+
+  await page.waitForSelector('#btn-check');
+  await page.waitForFunction(
+    () => document.querySelectorAll('.blocklyBlockCanvas .blocklyDraggable').length > 2,
+    undefined,
+    { timeout: 20_000 },
+  );
+
+  await page.evaluate(() => document.getElementById('btn-run').click());
+  await page.waitForSelector('[data-console-form]:not(.hidden)', { timeout: 20_000 });
+
+  const running = await page.evaluate(() => ({
+    workers: window.__workers.length,
+    terminated: window.__workers.map((worker) => worker.wasTerminated),
+  }));
+  assert.equal(running.workers, 1, 'the program runs in its own worker');
+  assert.deepEqual(running.terminated, [false], 'and is still alive while it waits for input');
+
+  // The student closes the console instead of answering.
+  await page.keyboard.press('Escape');
+  await page.waitForFunction(() => !document.getElementById('btn-run').disabled, undefined, { timeout: 20_000 });
+
+  const after = await page.evaluate(() => ({
+    terminated: window.__workers.map((worker) => worker.wasTerminated),
+    transcript: document.querySelector('[data-console-transcript]')?.textContent ?? '',
+    status: document.getElementById('status-bar')?.textContent ?? '',
+  }));
+
+  assert.deepEqual(after.terminated, [true], 'cancelling terminates the worker');
+  assert.match(after.transcript, /Run cancelled/);
+  assert.match(after.status, /cancelled/i);
+  assert.deepEqual(errors, []);
+});

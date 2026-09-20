@@ -69,9 +69,11 @@ Playwright's own Chromium instead, run `npx playwright install chromium`; set
 `PLAYWRIGHT_CHANNEL` to force a channel. When no browser can be launched the
 browser tests skip rather than fail, so `npm test` stays usable anywhere.
 
-Still not covered: the Web Worker execution path in `test-runner.js` and its
-five-second timeout (Node has no `Worker`, so the logic suite exercises the
-direct-execution fallback; the browser suite does not reach an infinite loop).
+Still not covered: the *grading* Worker path in `test-runner.js` and its
+five-second deadline (Node has no `Worker`, so the logic suite exercises the
+direct-execution fallback, and the browser suite does not grade a program that
+loops). The interactive Worker path — output streaming, the prompt round-trip,
+and terminating on cancel — is covered by the browser suite.
 
 ## Workflow
 
@@ -161,7 +163,9 @@ In the builder UI, `block_pattern` is now the preferred authoring path for conne
 
 ## Architecture
 
-The SCORM package runs entirely client-side in the student's browser. Code execution happens in a Web Worker with a 5-second timeout to prevent infinite loop freezes. Grades are reported to Moodle via the SCORM 1.2 API.
+The SCORM package runs entirely client-side in the student's browser. Grades are reported to Moodle via the SCORM 1.2 API.
+
+Code runs in a Web Worker in both directions, for different reasons. A **Check** is graded with a 5-second deadline, because there is no one to wait for: a runaway program must not hold up the result. A **Run** has no deadline at all — the student may sit at an input prompt for as long as they like, and a Worker parked on an answer costs nothing — but the page can still cancel it outright, so a program in a long loop stops the moment the student presses Escape. In both cases the loop trap bounds a runaway program (10,000 loop iterations and function calls, shared).
 
 The Activity Builder is also fully client-side — no server needed. It bundles Blockly for visual workspace editing and exports configs as JSON or complete SCORM packages as `.zip` files.
 

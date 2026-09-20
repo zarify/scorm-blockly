@@ -193,6 +193,12 @@ async function getExecutionResultForTest(testCase, generatedCode, executionPlans
  * @returns {Promise<{ success: boolean, cancelled: boolean, stdout: string, variables: object, prompts: Array<{message: string, response: string | null, cancelled: boolean}>, promptDiagnostics: null, error: string | null }>}
  */
 export async function executeInteractiveRun(generatedCode, hooks = {}) {
+  if (typeof Worker === 'function') {
+    return executeInteractiveRunInWorker(generatedCode, hooks);
+  }
+
+  // No Worker (Node, or a browser without one): run on this thread, where
+  // cancellation is cooperative and only takes effect at a print or a prompt.
   const executionContext = createExecutionContext({
     promptInputCount: null,
     inputProvider: createInteractiveInputProvider(hooks.requestInput),
@@ -201,6 +207,176 @@ export async function executeInteractiveRun(generatedCode, hooks = {}) {
   });
 
   return executeProgramWithContext(generatedCode, executionContext);
+}
+
+/**
+ * Run the student's program in a Worker.
+ *
+ * There is deliberately no deadline here, unlike `executeCode` for grading: a
+ * Run may legitimately be waiting at a prompt for as long as the student needs,
+ * and a Worker parked on `await` costs nothing. The Worker is for the two things
+ * a run on this thread cannot do — keep the page answering input while the
+ * program works, and stop it outright when the student cancels.
+ *
+ * @param {string} generatedCode
+ * @param {{
+ *   onStdout?: (line: string) => void,
+ *   requestInput?: (request: { message: string, defaultValue: string, inputType: string }) => Promise<string> | string,
+ *   registerTerminate?: (terminate: () => void) => void,
+ * }} [hooks] - `registerTerminate` receives a function that kills the program
+ *   immediately, wherever it is (a loop, a prompt, anything).
+ * @returns {Promise<object>} the same execution result shape as the fallback
+ */
+function executeInteractiveRunInWorker(generatedCode, hooks = {}) {
+  const programSource = buildExecutableProgramSource(generatedCode, buildExecutionCaptureSource({}));
+  const workerSource = buildInteractiveWorkerSource(programSource);
+  const url = URL.createObjectURL(new Blob([workerSource], { type: 'application/javascript' }));
+  const worker = new Worker(url);
+
+  const stdout = [];
+  const promptLog = [];
+  let settled = false;
+
+  return new Promise((resolve) => {
+    const finish = ({ success, cancelled = false, error = null }) => {
+      if (settled) return;
+      settled = true;
+      worker.terminate();
+      URL.revokeObjectURL(url);
+      resolve({
+        success,
+        cancelled,
+        stdout: stdout.length > 0 ? `${stdout.join('\n')}\n` : '',
+        variables: {},
+        functions: {},
+        functionCalls: {},
+        prompts: promptLog.map((entry) => ({ ...entry })),
+        promptDiagnostics: null,
+        error,
+      });
+    };
+
+    hooks.registerTerminate?.(() => {
+      finish({ success: false, cancelled: true, error: INTERACTIVE_RUN_CANCELLED_ERROR });
+    });
+
+    worker.onmessage = async (event) => {
+      const message = event.data || {};
+
+      if (message.type === 'stdout') {
+        stdout.push(message.line);
+        hooks.onStdout?.(message.line);
+        return;
+      }
+
+      if (message.type === 'input') {
+        if (settled) return;
+
+        let response = message.defaultValue == null ? '' : String(message.defaultValue);
+        try {
+          if (typeof hooks.requestInput === 'function') {
+            const answer = await hooks.requestInput({
+              message: message.message,
+              defaultValue: response,
+              inputType: message.inputType,
+            });
+            response = answer == null ? '' : String(answer);
+          }
+        } catch {
+          // The student cancelled at the prompt: that is a cancelled run, and the
+          // program is still parked in the Worker, so it has to be killed.
+          promptLog.push({ message: message.message, response: '', cancelled: true, usedProvidedInput: false });
+          finish({ success: false, cancelled: true, error: INTERACTIVE_RUN_CANCELLED_ERROR });
+          return;
+        }
+
+        promptLog.push({ message: message.message, response, cancelled: false, usedProvidedInput: false });
+        if (!settled) {
+          worker.postMessage({ type: 'input-response', requestId: message.requestId, value: response });
+        }
+        return;
+      }
+
+      if (message.type === 'done') {
+        finish({ success: message.success === true, error: message.error ?? null });
+      }
+    };
+
+    worker.onerror = (event) => {
+      finish({ success: false, error: event?.message || 'Worker error' });
+    };
+  });
+}
+
+/**
+ * The Worker half of an interactive run: streams output, asks the page for input
+ * and waits for the answer, and reports how the program ended.
+ * @param {string} programSource
+ * @returns {string}
+ */
+function buildInteractiveWorkerSource(programSource) {
+  return `
+    const AsyncFunction = Object.getPrototypeOf(async function emptyAsyncFunction() {}).constructor;
+    const __programSource = ${JSON.stringify(programSource)};
+    const __pendingInputs = new Map();
+    let __nextRequestId = 0;
+
+    self.onmessage = (event) => {
+      const message = event.data || {};
+      const pending = __pendingInputs.get(message.requestId);
+      if (!pending) return;
+      __pendingInputs.delete(message.requestId);
+      if (message.type === 'input-response') {
+        pending.resolve(String(message.value ?? ''));
+      } else {
+        pending.reject(new Error(${JSON.stringify(INTERACTIVE_RUN_CANCELLED_ERROR)}));
+      }
+    };
+
+    function __requestInput(message, defaultValue, inputType) {
+      const requestId = __nextRequestId++;
+      return new Promise((resolve, reject) => {
+        __pendingInputs.set(requestId, { resolve, reject });
+        postMessage({ type: 'input', requestId, message, defaultValue, inputType });
+      });
+    }
+
+    const __runtime = {
+      async writeLine() {
+        const line = Array.from(arguments).map(String).join(' ');
+        postMessage({ type: 'stdout', line });
+        return line;
+      },
+      async promptText(message, defaultValue = '') {
+        const normalizedMessage = String(message ?? '');
+        const normalizedDefault = defaultValue == null ? '' : String(defaultValue);
+        return __requestInput(normalizedMessage, normalizedDefault, 'text');
+      },
+      async promptNumber(message, defaultValue = '') {
+        const response = await __runtime.promptText(message, defaultValue);
+        if (String(response).trim() === '' || Number.isNaN(Number(response))) {
+          throw new Error('ValueError: could not convert string to float: ' + JSON.stringify(String(response)));
+        }
+        return Number(response);
+      },
+      readVar(name, value) {
+        if (value === undefined) {
+          throw new Error("NameError: name '" + String(name) + "' is not defined");
+        }
+        return value;
+      },
+    };
+
+    (async function runProgram() {
+      try {
+        const __fn = new AsyncFunction('__runtime', __programSource);
+        await __fn(__runtime);
+        postMessage({ type: 'done', success: true, error: null });
+      } catch (error) {
+        postMessage({ type: 'done', success: false, error: error instanceof Error ? error.message : String(error) });
+      }
+    })();
+  `;
 }
 
 /**

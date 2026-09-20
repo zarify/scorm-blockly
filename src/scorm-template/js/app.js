@@ -299,10 +299,14 @@ async function handleRun() {
 
     const runControl = {
       cancelled: false,
+      terminate: null,
       cancel() {
         if (this.cancelled) return;
         this.cancelled = true;
+        // Reject a prompt the student is sitting at, and stop the program
+        // wherever it is - a loop never reaches a prompt to notice the flag.
         interactiveConsoleState?.pendingRequest?.cancel?.();
+        this.terminate?.();
       },
     };
     activeInteractiveRun = runControl;
@@ -311,6 +315,9 @@ async function handleRun() {
       onStdout: appendConsoleOutput,
       requestInput: requestConsoleInput,
       isCancelled: () => runControl.cancelled,
+      registerTerminate: (terminate) => {
+        runControl.terminate = terminate;
+      },
     });
 
     finalizeInteractiveConsole(execution);
