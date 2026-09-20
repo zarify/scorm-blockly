@@ -274,6 +274,72 @@ test('a starting workspace naming a block this build does not have still renders
   assert.deepEqual(errors, []);
 });
 
+test('typing in a test field does not rebuild the selected pattern editor', async (t) => {
+  if (skipReason) return t.skip(skipReason);
+  const { page, errors, close } = await builderPage();
+  t.after(close);
+
+  const configPath = await writeConfig({
+    metadata: { activity_id: 'pattern_test_activity', title: 'Pattern test' },
+    instructions: { main: '', steps: [] },
+    ui_settings: { show_code_toggle: false, show_hint_panel: true, suspend_data_limit: 4096 },
+    blockly_setup: {
+      toolbox: { categories: [{ name: 'Text', colour: '#5CA68D', blocks: ['text_print', 'text'] }] },
+      starting_blocks: null,
+      max_blocks: null,
+    },
+    hints: [],
+    evaluation: {
+      require_previous_test_pass: true,
+      feedback_on_all_pass: '',
+      test_cases: [
+        {
+          id: 'test_pattern',
+          type: 'block_structure',
+          points: 10,
+          conditions: {
+            type: 'block_pattern',
+            workspace_state: { blocks: { languageVersion: 0, blocks: [{ type: 'text_print', x: 40, y: 40 }] } },
+          },
+        },
+      ],
+    },
+  });
+
+  await importConfigIntoBuilder(page, configPath);
+  await openTab(page, 'tests');
+  await page.click('.test-list-item');
+  await page.waitForSelector('.pattern-workspace .blocklyWorkspace', { timeout: 10_000 });
+
+  // Mark the mounted nodes; a rebuild replaces them and the marks disappear.
+  const marked = await page.evaluate(() => {
+    const workspace = document.querySelector('.pattern-workspace');
+    const editor = document.getElementById('test-editor-content');
+    workspace.dataset.marker = 'original';
+    editor.dataset.marker = 'original';
+    return true;
+  });
+  assert.equal(marked, true);
+
+  await page.click('#test-feedback');
+  for (const character of 'abcdefghij') {
+    await page.type('#test-feedback', character, { delay: 20 });
+  }
+
+  const after = await page.evaluate(() => ({
+    workspaceMarker: document.querySelector('.pattern-workspace')?.dataset.marker ?? null,
+    editorMarker: document.getElementById('test-editor-content')?.dataset.marker ?? null,
+    patternBlocks: document.querySelectorAll('.pattern-workspace .blocklyBlockCanvas .blocklyDraggable').length,
+    feedback: document.getElementById('test-feedback')?.value ?? null,
+  }));
+
+  assert.equal(after.workspaceMarker, 'original', 'the pattern workspace was not re-injected');
+  assert.equal(after.editorMarker, 'original', 'the editor was not rebuilt');
+  assert.ok(after.patternBlocks > 0);
+  assert.equal(after.feedback.endsWith('abcdefghij'), true, 'the typed text reached the field');
+  assert.deepEqual(errors, []);
+});
+
 test('Export SCORM downloads a package built from the current config', async (t) => {
   if (skipReason) return t.skip(skipReason);
   const { page, close } = await builderPage();
