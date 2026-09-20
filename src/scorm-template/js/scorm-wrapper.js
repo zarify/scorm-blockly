@@ -25,6 +25,10 @@ let previewMode = false;
 let hasUncommittedWrites = false;
 let lastCommitAt = 0;
 let commitTimer = null;
+/** Best score reported this session (null until the first Check). */
+let bestScore = null;
+/** True once the student has passed, here or in an earlier session. */
+let hasPassed = false;
 
 /**
  * Search for the SCORM API object in parent frames.
@@ -104,20 +108,27 @@ export function flushPendingWrites() {
 
 /**
  * Write the raw score fields and mark the data model dirty.
- * @param {number} score
- * @returns {number} the clamped score that was written
+ * @param {number} score - an already clamped 0-100 score
+ * @returns {number} the score that was written
  */
 function writeScore(score) {
-  // A non-numeric score (NaN) would survive Math.max/Math.min and reach the LMS
-  // as the text "NaN", which the runtime cannot parse. Infinities still clamp
-  // to the nearest bound.
-  const numeric = Number(score);
-  const clamped = Math.max(0, Math.min(100, Math.round(Number.isNaN(numeric) ? 0 : numeric)));
-  api.LMSSetValue('cmi.core.score.raw', String(clamped));
+  api.LMSSetValue('cmi.core.score.raw', String(score));
   api.LMSSetValue('cmi.core.score.min', '0');
   api.LMSSetValue('cmi.core.score.max', '100');
   hasUncommittedWrites = true;
-  return clamped;
+  return score;
+}
+
+/**
+ * A non-numeric score (NaN) would survive Math.max/Math.min and reach the LMS as
+ * the text "NaN", which the runtime cannot parse. Infinities still clamp to the
+ * nearest bound.
+ * @param {number} score
+ * @returns {number}
+ */
+function clampScore(score) {
+  const numeric = Number(score);
+  return Math.max(0, Math.min(100, Math.round(Number.isNaN(numeric) ? 0 : numeric)));
 }
 
 /**
@@ -146,6 +157,7 @@ export function init() {
       hasUncommittedWrites = true;
       commit({ force: true });
     }
+    adoptPreviousResult(currentStatus);
     return true;
   }
 
@@ -153,6 +165,22 @@ export function init() {
   previewMode = true;
   initialized = true;
   return false;
+}
+
+/**
+ * Take over the result the LMS already holds, so a returning student cannot
+ * have a pass or a best score downgraded by a later failed Check.
+ * @param {string} status
+ */
+function adoptPreviousResult(status) {
+  const raw = api.LMSGetValue('cmi.core.score.raw');
+  const parsed = Number(raw);
+  if (String(raw ?? '').trim() !== '' && Number.isFinite(parsed)) {
+    bestScore = clampScore(parsed);
+  }
+  if (status === 'passed' || status === 'completed') {
+    hasPassed = true;
+  }
 }
 
 /**
@@ -178,22 +206,6 @@ export function resume() {
 }
 
 /**
- * Set the raw score (0–100).
- * @param {number} score
- */
-export function setScore(score) {
-  if (!initialized) return;
-
-  if (previewMode) {
-    console.log(`[SCORM Preview] Score: ${Math.max(0, Math.min(100, Math.round(score)))}`);
-    return;
-  }
-
-  writeScore(score);
-  commit({ force: true });
-}
-
-/**
  * Set the lesson status.
  * @param {'passed'|'failed'|'completed'|'incomplete'} status
  */
@@ -211,9 +223,15 @@ export function setStatus(status) {
 }
 
 /**
- * Persist a score and set status based on pass/fail threshold.
+ * Persist the result of a Check and set status based on the pass threshold.
  * Both values are sent in a single commit, which is pushed out immediately:
  * a Check is a deliberate action and each commit is one blocking round-trip.
+ *
+ * The session keeps its best result. A student who passes and then keeps
+ * experimenting must not lose the pass - or the grade - because a later Check
+ * failed, which is also how Moodle's recommended "highest grade" method reads
+ * the data. The best score of earlier sessions is adopted on init.
+ *
  * @param {number} score - 0-100
  * @param {number} passingScore - Minimum score to pass (default 50)
  */
@@ -221,12 +239,22 @@ export function reportScore(score, passingScore = 50) {
   if (!initialized) return;
 
   if (previewMode) {
-    console.log(`[SCORM Preview] Score: ${score} → ${score >= passingScore ? 'passed' : 'failed'}`);
+    const clamped = clampScore(score);
+    console.log(`[SCORM Preview] Score: ${clamped} → ${clamped >= passingScore ? 'passed' : 'failed'}`);
     return;
   }
 
-  const clamped = writeScore(score);
-  api.LMSSetValue('cmi.core.lesson_status', clamped >= passingScore ? 'passed' : 'failed');
+  const clamped = clampScore(score);
+  const effective = bestScore === null ? clamped : Math.max(bestScore, clamped);
+  bestScore = effective;
+
+  const passed = effective >= passingScore || hasPassed;
+  if (passed) {
+    hasPassed = true;
+  }
+
+  writeScore(effective);
+  api.LMSSetValue('cmi.core.lesson_status', passed ? 'passed' : 'failed');
   commit({ force: true });
 }
 

@@ -348,6 +348,7 @@ async function handleRun() {
 
 async function handleCheck() {
   setExecutionButtonState({ checking: true });
+  setResultsModalClosable(false);
 
   try {
     dismissActiveBlocklyEditing();
@@ -381,6 +382,7 @@ async function handleCheck() {
     showStatus(`Error: ${err.message}`, 'error');
   } finally {
     setExecutionButtonState();
+    setResultsModalClosable(true);
   }
 }
 
@@ -477,6 +479,10 @@ function openResultsModal() {
 function closeResultsModal() {
   const modal = document.getElementById('results-modal');
   if (!modal) return;
+
+  // Locked while a run or a Check is in flight: closing would throw away the
+  // console the student is watching (and cancel their program).
+  if (isResultsModalCloseLocked) return;
 
   if (activeInteractiveRun) {
     activeInteractiveRun.cancel();
@@ -579,6 +585,8 @@ function renderInteractiveConsole() {
     pendingRequest: null,
     hasEntries: false,
     isRunning: true,
+    pendingLines: [],
+    flushHandle: null,
   };
 }
 
@@ -588,8 +596,38 @@ function dismissActiveBlocklyEditing() {
 }
 
 function appendConsoleOutput(line) {
-  if (!interactiveConsoleState) return;
-  appendConsoleEntry('output', line);
+  if (!interactiveConsoleState?.transcriptEl) return;
+  queueConsoleLine(line);
+}
+
+/**
+ * A program that prints thousands of lines used to build and append one row per
+ * line, and each append forced a layout by reading `scrollHeight`. Buffering the
+ * rows and flushing once per frame turns that into a single append and a single
+ * scroll per frame (and a single flush at the end of a tight loop, which never
+ * yields to the frame loop).
+ */
+function queueConsoleLine(text) {
+  const state = interactiveConsoleState;
+  state.hasEntries = true;
+  state.pendingLines.push(text);
+
+  if (state.flushHandle === null) {
+    state.flushHandle = requestAnimationFrame(() => flushConsoleLines(state));
+  }
+}
+
+function flushConsoleLines(state) {
+  state.flushHandle = null;
+  const pending = state.pendingLines.splice(0);
+  if (!state.transcriptEl || pending.length === 0) return;
+
+  const fragment = document.createDocumentFragment();
+  for (const text of pending) {
+    fragment.append(buildConsoleRow('output', text));
+  }
+  state.transcriptEl.append(fragment);
+  scrollConsoleToBottom();
 }
 
 async function requestConsoleInput({ message, defaultValue = '', inputType = 'text' } = {}) {
@@ -656,8 +694,18 @@ async function requestConsoleInput({ message, defaultValue = '', inputType = 'te
 function appendConsoleEntry(type, text, { awaitingInput = false, badge } = {}) {
   if (!interactiveConsoleState?.transcriptEl) return null;
 
+  // Entries that hand their node back (prompts, status lines) must be in the DOM
+  // now, and in order, so anything buffered goes out first.
+  flushConsoleLines(interactiveConsoleState);
   interactiveConsoleState.hasEntries = true;
 
+  const row = buildConsoleRow(type, text, { awaitingInput, badge });
+  interactiveConsoleState.transcriptEl.appendChild(row);
+  scrollConsoleToBottom();
+  return row;
+}
+
+function buildConsoleRow(type, text, { awaitingInput = false, badge } = {}) {
   const row = document.createElement('div');
   row.className = `console-entry console-entry-${type}`;
   if (awaitingInput) {
@@ -673,8 +721,6 @@ function appendConsoleEntry(type, text, { awaitingInput = false, badge } = {}) {
   entryValue.textContent = text == null || text === '' ? ' ' : String(text);
 
   row.append(entryBadge, entryValue);
-  interactiveConsoleState.transcriptEl.appendChild(row);
-  scrollConsoleToBottom();
   return row;
 }
 

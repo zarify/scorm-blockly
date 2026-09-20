@@ -146,6 +146,22 @@ async function findCachedChromiumExecutables() {
   return found;
 }
 
+/**
+ * Serve the built student runtime with a config of the test's choosing.
+ * The package's own `config/activity_config.json` is replaced in a copy, so the
+ * real bundle and HTML are exercised.
+ */
+export async function serveRuntimeWithConfig(config) {
+  const { mkdtemp, cp, writeFile } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+
+  const directory = await mkdtemp(join(tmpdir(), 'scorm-runtime-'));
+  await cp(join(DIST, 'scorm-template'), directory, { recursive: true });
+  await writeFile(join(directory, 'config/activity_config.json'), JSON.stringify(config, null, 2));
+
+  return startStaticServer(directory);
+}
+
 /** A page plus a recorder for the errors the browser reports. */
 export async function newPage(browser, { url, initScript, initScripts = [] } = {}) {
   const context = await browser.newContext();

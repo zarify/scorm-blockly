@@ -122,7 +122,6 @@ test('with no reachable LMS at all the page runs in preview mode', async (t) => 
   assert.equal(wrapper.getStudentId(), '');
   assert.equal(wrapper.getSuspendData(), '');
 
-  wrapper.setScore(90);
   wrapper.setStatus('passed');
   wrapper.reportScore(90, 50);
   assert.equal(wrapper.setSuspendData('anything'), false);
@@ -141,7 +140,8 @@ test('a first entry claims the attempt by writing incomplete, and commits it', a
   assert.equal(lms.valueOf('cmi.core.lesson_status'), 'incomplete');
   assert.deepEqual(lms.commits, [{ 'cmi.core.lesson_status': 'incomplete' }]);
   assert.equal(lms.calls[0].method, 'LMSInitialize');
-  assert.equal(lms.calls.at(-1).method, 'LMSCommit');
+  // init also reads the previous score and status to adopt the best result.
+  assert.equal(lms.callsOf('LMSCommit').length, 1);
 });
 
 test('empty, not attempted and browsed are the only statuses treated as a fresh attempt', async (t) => {
@@ -195,9 +195,7 @@ test('a boolean true from LMSInitialize counts as success', async (t) => {
   assert.equal(lms.valueOf('cmi.core.lesson_status'), 'incomplete');
 });
 
-test('setScore clamps to 0-100 with rounding, and always writes min and max', async (t) => {
-  const { lms, wrapper } = await startedSession(t);
-
+test('reportScore clamps to 0-100 with rounding, and always writes min and max', async (t) => {
   const cases = [
     [-5, '0'],
     [-0.4, '0'],
@@ -211,11 +209,15 @@ test('setScore clamps to 0-100 with rounding, and always writes min and max', as
     [Infinity, '100'],
     [-Infinity, '0'],
   ];
+
+  // One session per value: the session keeps its best score, which would
+  // otherwise mask a clamp on the way down.
   for (const [input, expected] of cases) {
-    wrapper.setScore(input);
-    assert.equal(lms.valueOf('cmi.core.score.raw'), expected, `setScore(${input})`);
-    assert.equal(lms.valueOf('cmi.core.score.min'), '0', `setScore(${input})`);
-    assert.equal(lms.valueOf('cmi.core.score.max'), '100', `setScore(${input})`);
+    const { lms, wrapper } = await startedSession(t);
+    wrapper.reportScore(input, 0);
+    assert.equal(lms.valueOf('cmi.core.score.raw'), expected, `reportScore(${input})`);
+    assert.equal(lms.valueOf('cmi.core.score.min'), '0', `reportScore(${input})`);
+    assert.equal(lms.valueOf('cmi.core.score.max'), '100', `reportScore(${input})`);
   }
 });
 
@@ -224,21 +226,51 @@ test('a score that is not a number is clamped to 0, never written as NaN', async
 
   // Math.max/Math.min propagate NaN, so without an explicit guard the LMS
   // receives the text "NaN", which it cannot parse.
-  wrapper.setScore(NaN);
-  assert.equal(lms.valueOf('cmi.core.score.raw'), '0');
-
   wrapper.reportScore(NaN, 50);
   assert.equal(lms.valueOf('cmi.core.score.raw'), '0');
   assert.equal(lms.valueOf('cmi.core.lesson_status'), 'failed');
 
-  wrapper.setScore('not a number');
+  wrapper.reportScore('not a number', 50);
   assert.equal(lms.valueOf('cmi.core.score.raw'), '0');
+});
 
-  // Infinities still clamp to the nearest bound.
-  wrapper.setScore(Infinity);
-  assert.equal(lms.valueOf('cmi.core.score.raw'), '100');
-  wrapper.setScore(-Infinity);
-  assert.equal(lms.valueOf('cmi.core.score.raw'), '0');
+test('the session keeps its best result, so a later failed Check cannot take a pass away', async (t) => {
+  const { lms, wrapper } = await startedSession(t);
+
+  wrapper.reportScore(80, 50);
+  assert.equal(lms.valueOf('cmi.core.score.raw'), '80');
+  assert.equal(lms.valueOf('cmi.core.lesson_status'), 'passed');
+
+  // The student keeps experimenting and breaks their program.
+  wrapper.reportScore(0, 50);
+  assert.equal(lms.valueOf('cmi.core.score.raw'), '80', 'the best score of the session is kept');
+  assert.equal(lms.valueOf('cmi.core.lesson_status'), 'passed', 'the pass survives');
+
+  // A better score still wins.
+  wrapper.reportScore(95, 50);
+  assert.equal(lms.valueOf('cmi.core.score.raw'), '95');
+  assert.equal(lms.valueOf('cmi.core.lesson_status'), 'passed');
+});
+
+test('a pass and a score from an earlier session are adopted, not downgraded', async (t) => {
+  const lms = lmsFor(t);
+  seed(lms, 'cmi.core.lesson_status', 'passed');
+  seed(lms, 'cmi.core.score.raw', '70');
+  const wrapper = await loadWrapper();
+  wrapper.init();
+
+  wrapper.reportScore(10, 50);
+  assert.equal(lms.valueOf('cmi.core.score.raw'), '70');
+  assert.equal(lms.valueOf('cmi.core.lesson_status'), 'passed');
+
+  // A failed first Check in a fresh session, with no previous pass, still fails.
+  const fresh = lmsFor(t);
+  seed(fresh, 'cmi.core.lesson_status', 'incomplete');
+  const freshWrapper = await loadWrapper();
+  freshWrapper.init();
+  freshWrapper.reportScore(10, 50);
+  assert.equal(fresh.valueOf('cmi.core.score.raw'), '10');
+  assert.equal(fresh.valueOf('cmi.core.lesson_status'), 'failed');
 });
 
 test('reportScore passes at exactly the passing score and fails just below it', async (t) => {
@@ -247,8 +279,10 @@ test('reportScore passes at exactly the passing score and fails just below it', 
   wrapper.reportScore(50, 50);
   assert.equal(lms.valueOf('cmi.core.lesson_status'), 'passed');
 
-  wrapper.reportScore(49, 50);
-  assert.equal(lms.valueOf('cmi.core.lesson_status'), 'failed');
+  // A fresh session: the first one keeps its 50, so a later 49 would pass there.
+  const missed = await startedSession(t);
+  missed.wrapper.reportScore(49, 50);
+  assert.equal(missed.lms.valueOf('cmi.core.lesson_status'), 'failed');
 });
 
 test('the rounded score is what the pass threshold sees', async (t) => {
@@ -264,18 +298,20 @@ test('the rounded score is what the pass threshold sees', async (t) => {
 });
 
 test('the clamped score decides pass or fail at the extremes', async (t) => {
-  const { lms, wrapper } = await startedSession(t);
+  const belowThreshold = await startedSession(t);
+  belowThreshold.wrapper.reportScore(-1, 0);
+  assert.equal(belowThreshold.lms.valueOf('cmi.core.score.raw'), '0');
+  assert.equal(belowThreshold.lms.valueOf('cmi.core.lesson_status'), 'passed');
 
-  wrapper.reportScore(-1, 0);
-  assert.equal(lms.valueOf('cmi.core.score.raw'), '0');
-  assert.equal(lms.valueOf('cmi.core.lesson_status'), 'passed');
+  // A fresh session, because a session keeps the best result it has seen.
+  const justMissed = await startedSession(t);
+  justMissed.wrapper.reportScore(-1, 1);
+  assert.equal(justMissed.lms.valueOf('cmi.core.lesson_status'), 'failed');
 
-  wrapper.reportScore(-1, 1);
-  assert.equal(lms.valueOf('cmi.core.lesson_status'), 'failed');
-
-  wrapper.reportScore(150, 100);
-  assert.equal(lms.valueOf('cmi.core.score.raw'), '100');
-  assert.equal(lms.valueOf('cmi.core.lesson_status'), 'passed');
+  const aboveMax = await startedSession(t);
+  aboveMax.wrapper.reportScore(150, 100);
+  assert.equal(aboveMax.lms.valueOf('cmi.core.score.raw'), '100');
+  assert.equal(aboveMax.lms.valueOf('cmi.core.lesson_status'), 'passed');
 });
 
 test('a reported score and the status that follows it share one commit', async (t) => {
@@ -478,7 +514,6 @@ test('after terminate nothing else reaches the LMS, and terminating again is a n
   assert.equal(wrapper.isSessionActive(), false);
 
   const callsAtFinish = lms.calls.length;
-  wrapper.setScore(99);
   wrapper.setStatus('failed');
   wrapper.reportScore(99, 50);
   assert.equal(wrapper.setSuspendData('after'), false);
@@ -601,7 +636,6 @@ test('preview mode makes every setter a no-op, and the runtime sees no writes', 
   const wrapper = await loadWrapper();
   assert.equal(wrapper.init(), false);
 
-  wrapper.setScore(90);
   wrapper.setStatus('passed');
   wrapper.reportScore(90, 50);
   assert.equal(wrapper.setSuspendData('x'), false);
@@ -623,7 +657,6 @@ test('setters called before init do nothing at all', async (t) => {
   const lms = lmsFor(t);
   const wrapper = await loadWrapper();
 
-  wrapper.setScore(50);
   wrapper.setStatus('passed');
   wrapper.reportScore(50, 50);
   wrapper.flushPendingWrites();
