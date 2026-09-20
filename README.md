@@ -21,18 +21,21 @@ npm run build
 | `npm run build:builder` | Build Activity Builder only |
 | `npm run export` | Create SCORM `.zip` from the built template |
 | `npm run dev` | Dev server with live rebuild (port 3000) |
-| `npm test` | Run the test suite (Node's built-in runner, no dependencies) |
+| `npm test` | Run the logic suite (Node's built-in runner, no dependencies) |
+| `npm run test:browser` | Build and run the browser suite (Playwright) |
 
 ## Tests
 
 ```bash
-npm test                              # whole suite
+npm test                                 # logic suite (450+ tests, ~1s)
+npm run test:browser                     # browser suite (builds first)
 node --test test/scorm-wrapper.test.js   # one file
 ```
 
-The suite runs on Node's built-in test runner with no test framework, no DOM
-emulation and no network. Tests import `src/` directly, so nothing has to be
-built first.
+### Logic suite (`test/`)
+
+Runs on Node's built-in test runner with no test framework, no DOM emulation
+and no network. Tests import `src/` directly, so nothing has to be built first.
 
 ```
 test/
@@ -45,21 +48,30 @@ test/
 └── *.test.js                 # one file per module
 ```
 
-What the suite is aimed at: the edges rather than the happy path. Legacy config
-shapes and unknown keys, boundary values (size limits, score thresholds, empty
-and oversized input), partial or malformed input, precedence between competing
+What it is aimed at: the edges rather than the happy path. Legacy config shapes
+and unknown keys, boundary values (size limits, score thresholds, empty and
+oversized input), partial or malformed input, precedence between competing
 fields, error paths that must not throw, and the cross-module contracts the
 runtime depends on (a config that validates must also normalise, grade and
 persist). Where behaviour is genuinely a contract — an LMS that rejects a write,
 a returning student whose `passed` status must survive re-entry, a
 `cmi.suspend_data` write that gets truncated — the fake LMS reproduces it.
 
-Not covered by this suite, because it needs a real browser: `Blockly.inject`
-(the SVG workspace in the builder and the student runtime), the builder's tab
-rendering and export/import flows, and the Web Worker execution path in
-`test-runner.js` (Node has no `Worker`, so the direct-execution fallback is what
-the tests exercise). Those are verified manually through the builder and a
-SCORM player.
+### Browser suite (`test/browser/`)
+
+Serves `dist/` and drives it with Playwright, for the parts that only exist in a
+browser: `Blockly.inject`, the builder's tab rendering and import/export, and
+the student runtime against a mock SCORM API (which it also uses to seed
+`cmi.suspend_data` and check that a saved workspace comes back).
+
+It uses the Chrome already on the machine and needs no download. To use
+Playwright's own Chromium instead, run `npx playwright install chromium`; set
+`PLAYWRIGHT_CHANNEL` to force a channel. When no browser can be launched the
+browser tests skip rather than fail, so `npm test` stays usable anywhere.
+
+Still not covered: the Web Worker execution path in `test-runner.js` and its
+five-second timeout (Node has no `Worker`, so the logic suite exercises the
+direct-execution fallback; the browser suite does not reach an infinite loop).
 
 ## Workflow
 
