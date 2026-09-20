@@ -82,7 +82,6 @@ Student-facing text fields support a safe inline Markdown subset: `**bold**`, `*
 | `theme` | string | No | `"default"` | `"default"`, `"dark"`, `"high_contrast"` | ⚠️ **Not yet implemented.** Defined in schema but not applied at runtime. |
 | `show_code_toggle` | boolean | No | `false` | — | Show the "Show Code" button that reveals generated JavaScript |
 | `show_hint_panel` | boolean | No | `true` | — | Enable student-facing hints in the UI |
-| `max_attempts` | integer or null | No | `null` | `≥ 1` or `null` | ⚠️ **Not yet enforced at runtime.** Defined in schema but the Check button is not disabled after N attempts. |
 | `suspend_data_limit` | integer | No | `4096` | `≥ 512` | Characters the runtime may use in `cmi.suspend_data` for saved student work. SCORM 1.2 specifies 4096; raise it only for an LMS known to accept more. Every write is verified by reading it back, and the runtime lowers its own limit and falls back to IndexedDB if the LMS refuses or truncates |
 
 **Example:**
@@ -92,7 +91,6 @@ Student-facing text fields support a safe inline Markdown subset: `**bold**`, `*
     "theme": "default",
     "show_code_toggle": false,
     "show_hint_panel": true,
-    "max_attempts": null,
     "suspend_data_limit": 4096
   }
 }

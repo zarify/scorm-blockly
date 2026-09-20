@@ -49,7 +49,6 @@ function createDefaultConfig() {
       theme: 'default',
       show_code_toggle: false,
       show_hint_panel: true,
-      max_attempts: null,
     },
     blockly_setup: {
       toolbox: { categories: createDefaultToolboxCategories() },

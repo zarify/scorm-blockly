@@ -63,12 +63,6 @@
           "default": true,
           "description": "Enable student-facing hints in the UI"
         },
-        "max_attempts": {
-          "type": ["integer", "null"],
-          "minimum": 1,
-          "default": null,
-          "description": "Maximum submission attempts (null = unlimited)"
-        },
         "suspend_data_limit": {
           "type": "integer",
           "minimum": 512,

@@ -17,8 +17,7 @@
   "ui_settings": {
     "theme": "default",
     "show_code_toggle": false,
-    "show_hint_panel": true,
-    "max_attempts": null
+    "show_hint_panel": true
   },
   "blockly_setup": {
     "toolbox": {

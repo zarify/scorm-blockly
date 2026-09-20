@@ -135,7 +135,6 @@ function createBaseConfig(source) {
       theme: asStringOr(uiSettings.theme, 'default'),
       show_code_toggle: uiSettings.show_code_toggle === true,
       show_hint_panel: uiSettings.show_hint_panel !== false,
-      max_attempts: asOptionalInteger(uiSettings.max_attempts, null),
       // SCORM 1.2 specifies 4096 characters for cmi.suspend_data.
       suspend_data_limit: asOptionalInteger(uiSettings.suspend_data_limit, SUSPEND_DATA_DEFAULT_LIMIT)
         ?? SUSPEND_DATA_DEFAULT_LIMIT,
