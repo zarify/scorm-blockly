@@ -83,8 +83,8 @@ and terminating on cancel — is covered by the browser suite.
    - **Config**: Set title, description, instructions
    - **Workspace**: Design the starter blocks (what students see when they open the activity)
    - **Toolbox**: Seed the student toolbox from the saved Workspace blocks, then rename categories, adjust colours, and choose which blocks students see
-   - **Hints**: Create progressive hints triggered by workspace state or test failures, including visual block-pattern matchers
-   - **Tests**: Define test cases (output matching, block structure checks, variable state, and function definition/call checks), including visual block-pattern matchers
+   - **Hints**: Create progressive hints triggered by workspace state or test failures, including visual block-pattern matchers and nested boolean conditions.
+   - **Tests**: Define test cases (output matching, block structure checks, variable state, and function definition/call checks); block-structure conditions support nested boolean groups.
    - **Preview**: Run the real student experience inside the builder to test blocks, hints, tests, and generated code before exporting
 4. Click **Export JSON** to download the config, or **Export SCORM** to get a `.zip`
 5. Upload the SCORM `.zip` to Moodle as a SCORM activity
@@ -158,6 +158,10 @@ Conditions inspect the Blockly workspace and support:
 - `block_count` — Count of a block type within a range
 - `workspace_connectedness` — Require one connected program or reject loose disconnected value blocks
 - `all` / `any` / `none` — Composite logic (AND / OR / NOT)
+
+Composite conditions (`all`, `any`, `none`) can contain nested conditions in both the
+Hints and block-structure Tests editors. Each condition appears in a collapsible card;
+the add button stays inside the group it edits.
 
 In the builder UI, `block_pattern` is now the preferred authoring path for connected/nested/value-matching structures; the older `block_connected`, `block_nested`, and `block_field_value` matchers remain supported mainly for backward compatibility.
 

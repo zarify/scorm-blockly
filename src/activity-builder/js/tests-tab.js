@@ -17,6 +17,7 @@ import {
   getSuggestedConditionBlockTypes,
 } from './condition-suggestions.js';
 import { renderPatternBuilder } from './pattern-builder.js';
+import { initConditionNode, refreshConditionNodeSummary, resetConditionCollapse } from './condition-node-ui.js';
 import {
   enableListReordering,
   getSelectionIndexAfterMove,
@@ -744,7 +745,7 @@ function renderTestTypeFields(tc) {
 }
 
 // Inline condition builder (simplified version — shared logic with hints tab)
-function renderConditionBuilder(container, condition, onChange) {
+function renderConditionBuilder(container, condition, onChange, onRemove = null) {
   const CONDITION_TYPES = [
     { value: 'block_exists', label: 'Block exists' },
     { value: 'block_missing', label: 'Block missing' },
@@ -763,16 +764,32 @@ function renderConditionBuilder(container, condition, onChange) {
     block_field_value: 'Field matches value/pattern — legacy',
   };
 
+  const typeOptions = getConditionTypeOptions(CONDITION_TYPES, LEGACY_CONDITION_TYPES, condition.type);
+  const title = typeOptions.find((option) => option.value === condition.type)?.label ?? condition.type;
   container.innerHTML = `
-    <div class="condition-builder">
-      <select class="condition-type-select">
-        ${getConditionTypeOptions(CONDITION_TYPES, LEGACY_CONDITION_TYPES, condition.type).map((ct) => `<option value="${ct.value}" ${condition.type === ct.value ? 'selected' : ''}>${ct.label}</option>`).join('')}
-      </select>
-      <div class="condition-fields" style="margin-top:8px"></div>
+    <div class="condition-node${['all', 'any', 'none'].includes(condition.type) ? ` condition-node--${condition.type}` : ''}">
+      <div class="condition-node-header">
+        <button type="button" class="condition-node-toggle" aria-expanded="true" aria-label="Collapse condition">▾</button>
+        <span class="condition-node-title">${escapeHtml(title)}</span>
+        <span class="condition-node-summary"></span>
+        ${onRemove ? '<button type="button" class="condition-remove" title="Remove this condition">✕</button>' : ''}
+      </div>
+      <div class="condition-node-body">
+        <div class="condition-type-row">
+          <select class="condition-type-select">
+            ${typeOptions.map((option) => `<option value="${escapeAttr(option.value)}" ${condition.type === option.value ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="condition-fields"></div>
+      </div>
     </div>
   `;
 
+  const nodeEl = container.querySelector('.condition-node');
   const typeSelect = container.querySelector('.condition-type-select');
+  const fieldsDiv = container.querySelector('.condition-fields');
+  if (onRemove) nodeEl.querySelector('.condition-remove').addEventListener('click', onRemove);
+
   typeSelect.addEventListener('change', (e) => {
     const newCond = { type: e.target.value };
     if (['all', 'any', 'none'].includes(newCond.type)) {
@@ -784,12 +801,18 @@ function renderConditionBuilder(container, condition, onChange) {
     } else if (newCond.type === 'workspace_connectedness') {
       newCond.mode = 'all_connected';
     }
+    resetConditionCollapse(condition);
     onChange(newCond, { rerenderBuilder: true });
+    if (container.isConnected && container.querySelector('.condition-type-select') === typeSelect) {
+      renderConditionBuilder(container, newCond, onChange, onRemove);
+    }
   });
 
-  const fieldsDiv = container.querySelector('.condition-fields');
   renderSimpleConditionFields(fieldsDiv, condition, onChange);
+  refreshConditionNodeSummary(nodeEl, condition);
+  initConditionNode(nodeEl, condition);
 }
+
 
 function renderSimpleConditionFields(container, condition, onChange) {
   const datalistIds = createConditionSuggestionIds('test-condition');
@@ -924,10 +947,15 @@ function renderSimpleConditionFields(container, condition, onChange) {
     case 'workspace_empty':
       html = '<p style="font-size:12px;color:#999">Matches when workspace has no blocks.</p>';
       break;
+    case 'all':
+    case 'any':
+    case 'none':
+      html = '<div class="condition-children"></div><button type="button" class="btn btn-small btn-secondary add-sub-condition">+ Add sub-condition</button>';
+      break;
     default:
-      html = '<p style="font-size:12px;color:#999">Configure sub-conditions below.</p>';
-  }
+      html = '';
 
+  }
   container.innerHTML = html;
 
   if (condition.type === BLOCK_PATTERN_TYPE) {
@@ -976,6 +1004,26 @@ function renderSimpleConditionFields(container, condition, onChange) {
   bind('.cond-mn', 'min', (v) => parseInt(v) || 0);
   bind('.cond-mx', 'max', (v) => parseInt(v) || 10);
   bind('.cond-wcm', 'mode', normalizeWorkspaceConnectednessMode, { event: 'change' });
+  if (['all', 'any', 'none'].includes(condition.type)) {
+    const childrenDiv = container.querySelector('.condition-children');
+    (condition.conditions ??= []).forEach((sub, i) => {
+      const childHost = document.createElement('div');
+      childrenDiv.appendChild(childHost);
+      renderConditionBuilder(childHost, sub,
+        (newSub, opts = {}) => { condition.conditions[i] = newSub; onChange(condition, opts); },
+        () => {
+          condition.conditions.splice(i, 1);
+          refreshConditionNodeSummary(container.closest('.condition-node'), condition);
+          onChange(condition, { rerenderBuilder: true });
+        });
+    });
+    container.querySelector('.add-sub-condition').addEventListener('click', () => {
+      condition.conditions.push({ type: 'workspace_empty' });
+      refreshConditionNodeSummary(container.closest('.condition-node'), condition);
+      onChange(condition, { rerenderBuilder: true });
+    });
+    refreshConditionNodeSummary(container.closest('.condition-node'), condition);
+  }
 }
 
 function renderRuntimeTextAssertionEditor({

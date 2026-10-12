@@ -67,6 +67,134 @@ test('the builder loads and imports a config from disk', async (t) => {
   assert.deepEqual(errors, []);
 });
 
+test('hint boolean groups are collapsible containers with per-group sub-condition buttons', async (t) => {
+  if (skipReason) return t.skip(skipReason);
+  const { page, errors, close } = await builderPage();
+  t.after(close);
+
+  await openTab(page, 'hints');
+  await page.click('#btn-add-hint');
+  await page.waitForSelector('#hint-condition-builder > .condition-node');
+
+  const rootSelector = '#hint-condition-builder > .condition-node';
+  const rootAdd = `${rootSelector} > .condition-node-body > .condition-fields > .add-sub-condition`;
+  await page.selectOption(`${rootSelector} .condition-type-select`, 'all');
+  await page.click(rootAdd);
+  const childNodes = `${rootSelector} > .condition-node-body > .condition-fields > .condition-children > div > .condition-node`;
+  assert.equal(await page.locator(childNodes).count(), 2, 'the group owns two direct child nodes');
+
+  const root = page.locator(rootSelector);
+  const rootToggle = page.locator(`${rootSelector} > .condition-node-header > .condition-node-toggle`);
+  const rootBody = page.locator(`${rootSelector} > .condition-node-body`);
+  const rootSummary = page.locator(`${rootSelector} > .condition-node-header > .condition-node-summary`);
+  await rootToggle.click();
+  assert.equal(await rootBody.isHidden(), true);
+  assert.match(await rootSummary.textContent(), /2 sub-conditions/);
+  assert.equal(await rootToggle.getAttribute('aria-expanded'), 'false');
+  await rootToggle.click();
+
+  await page.locator(childNodes).first().locator('.condition-type-select').selectOption('any');
+  const anyGroup = page.locator('#hint-condition-builder .condition-node--any').first();
+  await anyGroup.locator('.add-sub-condition').click();
+  assert.ok(
+    await page.locator('#hint-condition-builder .condition-node--all .condition-node--any .condition-node').count(),
+    'a nested OR group renders its child condition node',
+  );
+
+  const headerColors = await page.evaluate(() => {
+    const host = document.getElementById('hint-condition-builder');
+    const root = host.querySelector(':scope > .condition-node');
+    const any = host.querySelector('.condition-node--any');
+    const leaf = any.querySelector(':scope > .condition-node-body > .condition-fields > .condition-children > div > .condition-node');
+    return {
+      root: getComputedStyle(root.querySelector(':scope > .condition-node-header')).backgroundColor,
+      any: getComputedStyle(any.querySelector(':scope > .condition-node-header')).backgroundColor,
+      leaf: getComputedStyle(leaf.querySelector(':scope > .condition-node-header')).backgroundColor,
+      leafTitle: getComputedStyle(leaf.querySelector(':scope > .condition-node-header > .condition-node-title')).color,
+    };
+  });
+  assert.deepEqual(headerColors, {
+    root: 'rgb(232, 240, 251)',
+    any: 'rgb(233, 245, 236)',
+    leaf: 'rgb(246, 248, 250)',
+    leafTitle: 'rgb(51, 51, 51)',
+  });
+  assert.deepEqual(errors, []);
+});
+
+test('test composite conditions author nested sub-conditions', async (t) => {
+  if (skipReason) return t.skip(skipReason);
+  const { page, errors, close } = await builderPage();
+  t.after(close);
+
+  const configPath = await writeConfig({
+    metadata: { activity_id: 'nested_test_activity', title: 'Nested test' },
+    instructions: { main: '', steps: [] },
+    ui_settings: { show_code_toggle: false, show_hint_panel: true, suspend_data_limit: 4096 },
+    blockly_setup: {
+      toolbox: { categories: [{ name: 'Text', colour: '#5CA68D', blocks: ['text_print', 'text'] }] },
+      starting_blocks: null,
+      max_blocks: null,
+    },
+    hints: [],
+    evaluation: {
+      require_previous_test_pass: true,
+      feedback_on_all_pass: '',
+      test_cases: [
+        {
+          id: 'shape',
+          type: 'block_structure',
+          points: 1,
+          conditions: {
+            type: 'all',
+            conditions: [{ type: 'block_exists', block_type: 'text_print' }],
+          },
+        },
+      ],
+    },
+  });
+
+  await importConfigIntoBuilder(page, configPath);
+  await openTab(page, 'tests');
+  await page.click('.test-list-item');
+  await page.waitForSelector('#test-condition-builder .condition-node--all');
+  await page.click('#test-condition-builder .add-sub-condition');
+  assert.equal(
+    await page.locator('#test-condition-builder > .condition-node > .condition-node-body > .condition-fields > .condition-children > div > .condition-node').count(),
+    2,
+  );
+
+  const exported = await page.evaluate(async () => {
+    const chunks = [];
+    const original = URL.createObjectURL.bind(URL);
+    URL.createObjectURL = (blob) => {
+      chunks.push(blob.text());
+      return original(blob);
+    };
+    document.getElementById('btn-export-json').click();
+    return (await Promise.all(chunks))[0] ?? null;
+  });
+  assert.ok(exported, 'the JSON export produced a blob');
+  const config = JSON.parse(exported);
+  const conditions = config.evaluation.test_cases[0].conditions;
+  assert.equal(conditions.type, 'all');
+  assert.equal(conditions.conditions.length, 2);
+  assert.equal(conditions.conditions[1].type, 'workspace_empty');
+  assert.deepEqual(errors, []);
+});
+
+test('the tab-nav cannot scroll vertically', async (t) => {
+  if (skipReason) return t.skip(skipReason);
+  const { page, close } = await builderPage();
+  t.after(close);
+
+  const overflow = await page.evaluate(() => {
+    const nav = document.getElementById('tab-nav');
+    return nav.scrollHeight - nav.clientHeight;
+  });
+  assert.ok(overflow <= 0, `tab-nav vertical overflow was ${overflow}px`);
+});
+
 test('config settings removed from the schema still import and export', async (t) => {
   if (skipReason) return t.skip(skipReason);
   const { page, close } = await builderPage();

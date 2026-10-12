@@ -17,6 +17,7 @@ import {
   getSuggestedConditionBlockTypes,
 } from './condition-suggestions.js';
 import { renderPatternBuilder } from './pattern-builder.js';
+import { initConditionNode, refreshConditionNodeSummary, resetConditionCollapse } from './condition-node-ui.js';
 import {
   enableListReordering,
   getSelectionIndexAfterMove,
@@ -278,24 +279,34 @@ function renderHintEditor() {
   bindCheckboxField('hint-show-once', (v) => { hint.show_once = v; });
 }
 
-function renderConditionBuilder(container, condition, onChange) {
+function renderConditionBuilder(container, condition, onChange, onRemove = null) {
   const isComposite = ['all', 'any', 'none'].includes(condition.type);
+  const typeOptions = getConditionTypeOptions(condition.type);
+  const title = typeOptions.find((option) => option.value === condition.type)?.label ?? condition.type;
 
-  let html = `
-    <div class="condition-builder">
-      <div class="condition-row">
-        <select class="condition-type-select">
-          ${getConditionTypeOptions(condition.type).map((ct) => `<option value="${ct.value}" ${condition.type === ct.value ? 'selected' : ''}>${ct.label}</option>`).join('')}
-        </select>
+  container.innerHTML = `
+    <div class="condition-node${isComposite ? ` condition-node--${condition.type}` : ''}">
+      <div class="condition-node-header">
+        <button type="button" class="condition-node-toggle" aria-expanded="true" aria-label="Collapse condition">▾</button>
+        <span class="condition-node-title">${escapeHtml(title)}</span>
+        <span class="condition-node-summary"></span>
+        ${onRemove ? '<button type="button" class="condition-remove" title="Remove this condition">✕</button>' : ''}
       </div>
-      <div class="condition-fields"></div>
+      <div class="condition-node-body">
+        <div class="condition-type-row">
+          <select class="condition-type-select">
+            ${typeOptions.map((option) => `<option value="${escapeAttr(option.value)}" ${condition.type === option.value ? 'selected' : ''}>${escapeHtml(option.label)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="condition-fields"></div>
+      </div>
     </div>
   `;
 
-  container.innerHTML = html;
-
+  const nodeEl = container.querySelector('.condition-node');
   const typeSelect = container.querySelector('.condition-type-select');
   const fieldsDiv = container.querySelector('.condition-fields');
+  if (onRemove) nodeEl.querySelector('.condition-remove').addEventListener('click', onRemove);
 
   typeSelect.addEventListener('change', (e) => {
     const newType = e.target.value;
@@ -309,11 +320,14 @@ function renderConditionBuilder(container, condition, onChange) {
     } else if (newType === 'workspace_connectedness') {
       newCondition.mode = 'all_connected';
     }
+    resetConditionCollapse(condition);
     onChange(newCondition);
-    renderConditionBuilder(container, newCondition, onChange);
+    renderConditionBuilder(container, newCondition, onChange, onRemove);
   });
 
   renderConditionFields(fieldsDiv, condition, onChange);
+  refreshConditionNodeSummary(nodeEl, condition);
+  initConditionNode(nodeEl, condition);
 }
 
 function renderConditionFields(container, condition, onChange) {
@@ -523,8 +537,8 @@ function renderConditionFields(container, condition, onChange) {
     case 'all':
     case 'any':
     case 'none':
-      html = '<div class="condition-nested" id="nested-conditions"></div>';
-      html += '<button class="btn btn-small btn-secondary add-nested-condition" style="margin-top:8px">+ Add sub-condition</button>';
+      html = '<div class="condition-children"></div>';
+      html += '<button type="button" class="btn btn-small btn-secondary add-sub-condition">+ Add sub-condition</button>';
       break;
   }
 
@@ -541,42 +555,31 @@ function renderConditionFields(container, condition, onChange) {
   // Bind fields based on type
   bindConditionInputs(container, condition, onChange);
 
-  // Handle composite conditions
+  // Bind fields before mounting nested condition nodes.
   if (['all', 'any', 'none'].includes(condition.type)) {
-    const nestedDiv = container.querySelector('#nested-conditions');
+    const childrenDiv = container.querySelector('.condition-children');
     const subConditions = condition.conditions || [];
 
     subConditions.forEach((sub, i) => {
-      const subContainer = document.createElement('div');
-      subContainer.style.marginBottom = '8px';
-
-      const removeBtn = document.createElement('button');
-      removeBtn.className = 'btn btn-small btn-danger';
-      removeBtn.textContent = '✕';
-      removeBtn.style.marginBottom = '4px';
-      removeBtn.addEventListener('click', () => {
-        condition.conditions.splice(i, 1);
-        onChange(condition);
-        renderConditionFields(container, condition, onChange);
-      });
-
-      subContainer.appendChild(removeBtn);
-      const builderDiv = document.createElement('div');
-      subContainer.appendChild(builderDiv);
-      nestedDiv.appendChild(subContainer);
-
-      renderConditionBuilder(builderDiv, sub, (newSub) => {
-        condition.conditions[i] = newSub;
-        onChange(condition);
-      });
+      const childHost = document.createElement('div');
+      childrenDiv.appendChild(childHost);
+      renderConditionBuilder(childHost, sub,
+        (newSub) => { condition.conditions[i] = newSub; onChange(condition); },
+        () => {
+          condition.conditions.splice(i, 1);
+          onChange(condition);
+          renderConditionFields(container, condition, onChange);
+        });
     });
 
-    container.querySelector('.add-nested-condition').addEventListener('click', () => {
+    container.querySelector('.add-sub-condition').addEventListener('click', () => {
       if (!condition.conditions) condition.conditions = [];
       condition.conditions.push({ type: 'workspace_empty' });
       onChange(condition);
       renderConditionFields(container, condition, onChange);
+      refreshConditionNodeSummary(container.closest('.condition-node'), condition);
     });
+    refreshConditionNodeSummary(container.closest('.condition-node'), condition);
   }
 }
 
