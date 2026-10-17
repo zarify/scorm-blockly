@@ -25,6 +25,9 @@ import { exportJSON, exportSCORM, importConfig } from './export.js';
 configureJavascriptGenerator(javascriptGenerator);
 registerBlockPatternBlocks(Blockly);
 
+// Authoring-tool semver, injected from package.json by scripts/build.js and scripts/dev.js.
+const BUILDER_VERSION = typeof __BUILDER_VERSION__ === 'string' ? __BUILDER_VERSION__ : '0.0.0-dev';
+
 // Central config state — this is the config being built
 const state = {
   config: createDefaultConfig(),
@@ -99,9 +102,18 @@ export { Blockly, javascriptGenerator };
 
 // — Initialization —
 
+/** Show the authoring-tool version (semver from package.json) in the header. */
+function initVersionBadge() {
+  const badge = document.getElementById('builder-version');
+  if (!badge) return;
+  badge.textContent = `v${BUILDER_VERSION}`;
+  badge.title = `Activity builder version ${BUILDER_VERSION}`;
+}
+
 function init() {
   setupTabs();
   setupHeaderActions();
+  initVersionBadge();
 
   // Initialize all tab modules
   initConfigTab();

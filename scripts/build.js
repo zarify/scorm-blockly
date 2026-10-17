@@ -7,6 +7,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, '..');
 const SRC = resolve(ROOT, 'src');
 const DIST = resolve(ROOT, 'dist');
+// Authoring-tool semver (package.json), injected into the builder bundle.
+const BUILDER_VERSION = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).version;
 
 const target = process.argv.find((a) => a.startsWith('--target='))?.split('=')[1] || 'all';
 
@@ -15,6 +17,7 @@ function getProductionBundleOptions() {
     target: ['es2020'],
     define: {
       'process.env.NODE_ENV': '"production"',
+      __BUILDER_VERSION__: JSON.stringify(BUILDER_VERSION),
     },
     // Keep function/class names and local identifiers stable so Blockly's
     // dynamic procedure/category machinery behaves the same in Firefox as it

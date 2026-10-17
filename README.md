@@ -24,6 +24,14 @@ npm run build
 | `npm test` | Run the logic suite (Node's built-in runner, no dependencies) |
 | `npm run test:browser` | Build and run the browser suite (Playwright) |
 
+## Versioning
+
+The authoring tool's own version is the `version` field in `package.json` (semver,
+shown as `v0.1.0` in the builder header next to the title). `scripts/build.js` and
+`scripts/dev.js` inject it into the builder bundle at build time — bump
+`package.json` and rebuild to release. It is independent of the bundled Blockly
+version.
+
 ## Tests
 
 ```bash

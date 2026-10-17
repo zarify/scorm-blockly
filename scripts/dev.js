@@ -8,6 +8,8 @@ const ROOT = resolve(__dirname, '..');
 const SRC = resolve(ROOT, 'src');
 const DIST = resolve(ROOT, 'dist');
 const BUILDER_DIST = resolve(DIST, 'activity-builder');
+// Authoring-tool semver (package.json), injected into the builder bundle.
+const BUILDER_VERSION = JSON.parse(readFileSync(resolve(ROOT, 'package.json'), 'utf8')).version;
 
 async function bundleScormApp(outfile) {
   await esbuild.build({
@@ -61,6 +63,9 @@ async function dev() {
     outfile: resolve(BUILDER_DIST, 'js/builder.bundle.js'),
     format: 'iife',
     globalName: 'ActivityBuilder',
+    define: {
+      __BUILDER_VERSION__: JSON.stringify(BUILDER_VERSION),
+    },
     sourcemap: true,
     target: ['es2020'],
   });
